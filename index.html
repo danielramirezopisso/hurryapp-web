@@ -173,6 +173,14 @@ button{font-family:inherit;cursor:pointer}
   background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:.78rem;opacity:.5;text-align:center;padding:.5rem;
 }
 .lightbox-img{width:100%;border-radius:12px;display:block}
+.ph-add{
+  height:96px;min-width:72px;border:1.5px dashed var(--line);border-radius:10px;background:var(--porcelana);
+  font-size:1.3rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1rem;
+  color:var(--ink);opacity:.65;flex-shrink:0;transition:all .15s;
+}
+.ph-add span{font-size:.56rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.ph-add:hover{opacity:1;border-color:var(--acento);color:var(--acento)}
+.m-row input[type="file"]{border-style:dashed;font-size:.8rem;padding:.6rem}
 .lb-wrap{position:relative}
 .lb-nav{
   position:absolute;top:50%;transform:translateY(-50%);
@@ -263,13 +271,26 @@ button{font-family:inherit;cursor:pointer}
 .fab-add:active{transform:scale(.94)}
 #addBanner{
   position:fixed;top:7.4rem;left:50%;z-index:24;
-  background:var(--ink);color:var(--porcelana);border-radius:999px;padding:.55rem .6rem .55rem 1.1rem;
-  display:flex;align-items:center;gap:.8rem;font-size:.8rem;font-weight:600;box-shadow:var(--shadow);
-  max-width:92vw;
+  background:var(--ink);color:var(--porcelana);border-radius:14px;padding:.7rem .8rem;
+  display:flex;flex-direction:column;gap:.55rem;font-size:.8rem;font-weight:600;box-shadow:var(--shadow);
+  width:min(460px,92vw);
   opacity:0;visibility:hidden;transform:translateX(-50%) translateY(-14px);
   transition:opacity .3s,visibility .3s,transform .3s cubic-bezier(.3,.9,.3,1);
 }
 #addBanner.on{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.ab-row{display:flex;gap:.5rem;align-items:center;width:100%}
+#abSearch{
+  flex:1;border:none;border-radius:9px;padding:.6rem .8rem;font-family:inherit;font-size:.88rem;
+  background:rgba(248,245,239,.12);color:var(--porcelana);min-width:0;
+}
+#abSearch::placeholder{color:rgba(248,245,239,.5)}
+#abSearch:focus{outline:none;background:rgba(248,245,239,.2)}
+.ab-find{background:var(--acento);color:#fff;border:none;border-radius:9px;padding:.6rem 1rem;font-size:.74rem;font-weight:800;letter-spacing:.04em}
+.ab-find:hover{background:var(--acento-dark)}
+.ab-foot{justify-content:space-between}
+.ab-hint{font-size:.68rem;opacity:.65;font-weight:500;flex:1}
+.ab-use{background:var(--ok);color:#fff;border:none;border-radius:999px;padding:.4rem .85rem;font-size:.66rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.ab-cancel{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.4rem .85rem;font-size:.64rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 #addBanner button{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.35rem .8rem;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 </style>
 </head>
@@ -309,9 +330,18 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <div id="addBanner">
-  <span>👆 Tap the map where the throne lives</span>
-  <button onclick="cancelAdd()">Cancel</button>
+  <div class="ab-row">
+    <input id="abSearch" placeholder="Type an address or a city…" onkeydown="if(event.key==='Enter')abFind()">
+    <button class="ab-find" onclick="abFind()">Find</button>
+  </div>
+  <div class="ab-row ab-foot">
+    <span class="ab-hint" id="abHint">👆 …or just tap the map where the throne lives</span>
+    <button class="ab-use" id="abUse" style="display:none" onclick="confirmDraft()">✓ Use this spot</button>
+    <button class="ab-cancel" onclick="cancelAdd()">Cancel</button>
+  </div>
 </div>
+
+<input type="file" id="photoInput" accept="image/*" multiple style="display:none">
 
 <div class="sheet" id="sheet">
   <div class="sheet-grab"></div>
@@ -547,7 +577,7 @@ function openDetail(id){
         ${b.handi?'<span class="badge">♿ Accessible</span>':""}
         ${b.baby?'<span class="badge">🚼 Baby changer</span>':""}
       </div>
-      <div class="d-photos" id="phStrip">${b.photos>0?'<div class="ph">📷 Loading '+b.photos+' photo'+(b.photos===1?"":"s")+'…</div>':'<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'}</div>
+      <div class="d-photos" id="phStrip">${b.photos>0?'<div class="ph">📷 Loading '+b.photos+' photo'+(b.photos===1?"":"s")+'…</div>':'<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'}<button class="ph-add" onclick="pickPhotos(${b.id})" title="Add a photo">＋<span>photo</span></button></div>
       <div class="d-review"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
       <div class="d-actions">
         <button class="btn btn-ink" onclick="openRate(${b.id})">Rate this throne</button>
@@ -567,14 +597,15 @@ async function loadPhotos(id){
     const strip = $("phStrip");
     if(!strip || selectedId!==id) return; // user already moved on
     if(!Array.isArray(rows) || !rows.length){
-      strip.innerHTML = '<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; return;
+      strip.innerHTML = '<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'+`<button class="ph-add" onclick="pickPhotos(${id})">＋<span>photo</span></button>`; return;
     }
     LB.list = rows.map(x=>photoURL(x.file_name));
+    const addTile = `<button class="ph-add" onclick="pickPhotos(${id})" title="Add a photo">＋<span>photo</span></button>`;
     strip.innerHTML = LB.list.map((u,i)=>
       `<img src="${u}" loading="lazy" alt="Throne photo" onclick="lbOpen(${i})" onerror="LB.dead.add(${i});this.remove()">`
-    ).join("");
+    ).join("") + addTile;
     // if every img 404s (orphan DB rows), fall back to the empty message
-    setTimeout(()=>{ if(strip && !strip.querySelector("img") && selectedId===id) strip.innerHTML='<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; }, 4000);
+    setTimeout(()=>{ if(strip && !strip.querySelector("img") && selectedId===id) strip.innerHTML='<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'+`<button class="ph-add" onclick="pickPhotos(${id})">＋<span>photo</span></button>`; }, 4000);
   }catch(e){}
 }
 const LB = {list:[], i:0, open:false, dead:new Set()};
@@ -765,9 +796,55 @@ async function submitRate(){
 
 /* ---- add a throne ---- */
 let nbScore = 0;
+let draftMarker = null, draftAddr = "";
 function exitAddMode(){
   addMode = false;
   $("addBanner").classList.remove("on");
+  if(draftMarker){ map.removeLayer(draftMarker); draftMarker = null; }
+  draftAddr = "";
+  const u=$("abUse"), h=$("abHint"), q=$("abSearch");
+  if(u) u.style.display="none";
+  if(h) h.textContent="👆 …or just tap the map where the throne lives";
+  if(q) q.value="";
+}
+function setDraft(lat,lng){
+  if(draftMarker){ draftMarker.setLatLng([lat,lng]); return; }
+  draftMarker = L.marker([lat,lng],{draggable:true,icon:L.divIcon({
+    html:'<div class="score-pin" style="background:var(--acento)"><span>＋</span></div>',
+    iconSize:[40,40],iconAnchor:[20,40]})}).addTo(map);
+  draftMarker.bindTooltip("Drag me to the exact spot",{direction:"top"});
+}
+async function abFind(){
+  const q = $("abSearch").value.trim();
+  if(!q){ toast("Type an address or a city first."); return; }
+  toast("Searching…");
+  try{
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`);
+    const j = await r.json();
+    if(!j.length){ toast("Nothing found. Try adding the city name."); return; }
+    const res = j[0], lat = +res.lat, lng = +res.lon;
+    const broad = ["city","town","village","municipality","state","county","suburb","administrative","postcode","country","region","island"].includes(res.addresstype||res.type);
+    if(broad){
+      if(draftMarker){ map.removeLayer(draftMarker); draftMarker=null; $("abUse").style.display="none"; }
+      map.flyTo([lat,lng],13,{duration:.8});
+      $("abHint").textContent = "Centered — tap the exact spot, or type a fuller address";
+      toast(`📍 ${esc((res.display_name||q).split(",")[0])}`);
+    } else {
+      setDraft(lat,lng);
+      draftAddr = (res.display_name||q).split(",").slice(0,4).join(",");
+      map.flyTo([lat,lng],17,{duration:.8});
+      $("abUse").style.display = "";
+      $("abHint").textContent = "Drag the pin to fine-tune, then confirm →";
+      toast("🎯 Found it. Adjust the pin if needed.");
+    }
+  }catch(e){ toast("Search hiccup — try again."); }
+}
+function confirmDraft(){
+  if(!draftMarker) return;
+  const p = draftMarker.getLatLng();
+  const a = draftAddr;
+  exitAddMode();
+  openAddForm(p, a);
 }
 function cancelAdd(){ exitAddMode(); }
 function startAdd(){
@@ -777,14 +854,15 @@ function startAdd(){
   addMode = true;
   $("addBanner").classList.add("on");
 }
-function openAddForm(latlng){
+function openAddForm(latlng, prefillAddr){
   openModal(`
     <h2>Enthrone this spot</h2>
-    <p class="m-sub">Two fields and you're a hero. That's the whole funnel.</p>
+    <p class="m-sub">A name and you're a hero. Everything else is extra credit.</p>
     <div class="m-row"><label>Name it</label><input id="nbName" placeholder="e.g. The Porcelain Palace" onkeydown="if(event.key==='Enter')submitNew(${latlng.lat},${latlng.lng})"></div>
     <div class="m-row"><label>First impression, in rolls</label>
       <div class="seg">${[1,2,3,4,5].map(n=>`<button onclick="nbScore=${n};this.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on')">${n}</button>`).join("")}</div></div>
-    <div class="m-row"><label>Where exactly <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional — helps others find it)</span></label><input id="nbAddr" placeholder="e.g. Bar Manolo · ask nicely"></div>
+    <div class="m-row"><label>Where exactly <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional — helps others find it)</span></label><input id="nbAddr" value="${esc(prefillAddr||"")}" placeholder="e.g. Bar Manolo · ask nicely"></div>
+    <div class="m-row"><label>Photos <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional — resized automatically)</span></label><input type="file" id="nbPhotos" accept="image/*" multiple></div>
     <button class="btn btn-ink" style="width:100%" onclick="submitNew(${latlng.lat},${latlng.lng})">🏛️ Add it to the map</button>
     <p class="demo-note">Goes straight into the real database. Power. Responsibility.</p>`);
   setTimeout(()=>$("nbName").focus(),100);
@@ -793,13 +871,54 @@ async function submitNew(lat,lng){
   const name = $("nbName").value.trim();
   if(!name){toast("A throne needs a name. Even a bad one.");return}
   const addr = $("nbAddr").value.trim();
+  const files = $("nbPhotos") ? [...$("nbPhotos").files] : [];
   toast("Enthroning…");
   const {data,error} = await supa.rpc("add_throne",{p_name:name,p_address:addr||null,p_lat:lat,p_lng:lng,p_score:nbScore||null});
   if(error){toast("😬 "+error.message);return}
   nbScore = 0; closeModal();
+  if(files.length) await uploadPhotos(data, files);
   await refetchThrone(data);
   drawMarkers(); openDetail(data);
-  toast(`🏛️ "${esc(name)}" is on the map. Forever. Humanity thanks you.`);
+  toast(`🏛️ "${esc(name)}" is on the map${files.length?" — photos included":""}. Humanity thanks you.`);
+}
+
+/* ---- photo upload: resize in the browser (max 1600px, q80), then Storage + DB ---- */
+async function resizeToJpeg(file, maxSide=1600, quality=.8){
+  let bmp;
+  try{ bmp = await createImageBitmap(file, {imageOrientation:"from-image"}); }
+  catch(e){
+    bmp = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(file); });
+  }
+  const w = bmp.width, h = bmp.height, k = Math.min(1, maxSide/Math.max(w,h));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w*k); c.height = Math.round(h*k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return new Promise(res=>c.toBlob(res, "image/jpeg", quality));
+}
+async function uploadPhotos(bathroomId, files){
+  let done = 0;
+  for(const f of files){
+    toast(`📸 Uploading ${done+1}/${files.length}…`);
+    try{
+      const blob = await resizeToJpeg(f);
+      if(!blob) throw new Error("could not read that image");
+      const base = (f.name||"photo").toLowerCase().replace(/[^a-z0-9._-]/g,"").replace(/\.[a-z0-9]+$/,"").slice(-40) || "photo";
+      const key = `${bathroomId}/${crypto.randomUUID()}-${base}.jpg`;
+      const {error:e1} = await supa.storage.from("photos").upload(key, blob, {contentType:"image/jpeg"});
+      if(e1) throw e1;
+      const {error:e2} = await supa.rpc("add_photo",{p_bathroom_id:bathroomId, p_file_name:key});
+      if(e2) throw e2;
+      done++;
+    }catch(e){ toast("😬 "+(e.message||"upload failed")); }
+  }
+  return done;
+}
+let uploadTargetId = null;
+function pickPhotos(id){
+  if(!loggedIn){ openAuth("email","Log in to immortalize this throne in pictures."); return; }
+  uploadTargetId = id;
+  $("photoInput").value = "";
+  $("photoInput").click();
 }
 
 /* ---- auth: accounts first (log in / create), anonymous as plan B ---- */
@@ -908,6 +1027,18 @@ function openAbout(){
     supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     supa.auth.getSession().then(({data})=>setAuthUI(data.session));
     supa.auth.onAuthStateChange((event,session)=>{setAuthUI(session);if(event==="PASSWORD_RECOVERY")openSetPassword();});
+    $("photoInput").addEventListener("change", async function(){
+      const files = [...this.files];
+      if(!files.length || uploadTargetId==null) return;
+      const id = uploadTargetId;
+      const n = await uploadPhotos(id, files);
+      if(n){
+        const b = BATHROOMS.find(x=>x.id===id);
+        if(b) b.photos += n;
+        toast(`📸 ${n} photo${n===1?"":"s"} up. The archive grows.`);
+        if(selectedId===id) loadPhotos(id);
+      }
+    });
     await loadThrones();
     if(!BATHROOMS.length) throw new Error("view returned 0 rows — did you run the map_thrones SQL?");
     YOU = [
