@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HurryApp · Throne Room (admin)</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --porcelana:#F8F5EF; --ink:#26241F; --acento:#C75146; --oro:#C9A227;
+  --ok:#5E8C61; --bad:#B0564B; --card:#fff; --line:rgba(38,36,31,.12);
+  --shadow:0 8px 26px rgba(38,36,31,.13);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:'DM Sans',sans-serif;background:var(--porcelana);color:var(--ink);overflow:hidden}
+h1,h2,h3{font-family:'DM Serif Display',serif;font-weight:400}
+button{font-family:inherit;cursor:pointer}
+:focus-visible{outline:2.5px solid var(--acento);outline-offset:2px}
+
+.layout{display:grid;grid-template-columns:380px 1fr;height:100dvh}
+@media(max-width:820px){.layout{grid-template-columns:1fr;grid-template-rows:45dvh 1fr}}
+
+/* left: list */
+.panel{background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.p-head{padding:1rem 1.1rem .7rem}
+.p-head h1{font-size:1.35rem}
+.p-head h1 i{font-style:italic;color:var(--acento)}
+.p-head .sub{font-size:.72rem;opacity:.55}
+.p-head input{width:100%;margin-top:.7rem;border:1.5px solid var(--line);border-radius:10px;padding:.6rem .8rem;font-family:inherit;font-size:.9rem;background:var(--porcelana)}
+.p-head input:focus{outline:none;border-color:var(--ink)}
+.rows{flex:1;overflow-y:auto}
+.rowi{padding:.7rem 1.1rem;border-top:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:.6rem;align-items:center}
+.rowi:hover{background:rgba(38,36,31,.03)}
+.rowi.sel{background:rgba(199,81,70,.07)}
+.rowi .n{font-weight:600;font-size:.88rem;line-height:1.25}
+.rowi .a{font-size:.7rem;opacity:.55}
+.tag{font-size:.58rem;font-weight:800;letter-spacing:.08em;padding:.14rem .5rem;border-radius:999px;text-transform:uppercase;flex-shrink:0}
+.tag.far{background:rgba(176,86,75,.14);color:#8E3F35}
+.tag.nocoord{background:rgba(201,162,39,.16);color:#8A6D12}
+.tag.ok{background:rgba(94,140,97,.13);color:#3F6B44}
+
+/* right: map + editor */
+.right{position:relative}
+#map{position:absolute;inset:0}
+.editor{
+  position:absolute;right:1rem;top:1rem;z-index:1000;width:330px;max-width:calc(100% - 2rem);
+  background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+  padding:1rem 1.1rem;display:none;max-height:calc(100% - 2rem);overflow-y:auto;
+}
+.editor.open{display:block}
+.editor h2{font-size:1.15rem;margin-bottom:.1rem}
+.editor .eid{font-size:.66rem;opacity:.5;margin-bottom:.7rem}
+.f{margin-bottom:.65rem}
+.f label{display:block;font-size:.6rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.55;margin-bottom:.25rem}
+.f input{width:100%;border:1.5px solid var(--line);border-radius:9px;padding:.55rem .7rem;font-family:inherit;font-size:.88rem;background:var(--porcelana)}
+.f input:focus{outline:none;border-color:var(--ink)}
+.coords{font-size:.74rem;background:var(--porcelana);border-radius:8px;padding:.5rem .7rem;margin:.4rem 0 .6rem;font-variant-numeric:tabular-nums}
+.tools{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.7rem}
+.tools button{border:1.5px solid var(--line);background:var(--porcelana);border-radius:999px;padding:.35rem .7rem;font-size:.68rem;font-weight:700}
+.tools button:hover{border-color:var(--ink)}
+.actions{display:flex;gap:.5rem}
+.btn{border-radius:999px;border:none;padding:.7rem 1rem;font-size:.76rem;font-weight:800;flex:1}
+.btn-ink{background:var(--ink);color:var(--porcelana)}
+.btn-ink:hover{background:#000}
+.btn-danger{background:transparent;border:1.5px solid var(--bad);color:var(--bad)}
+.btn-danger:hover{background:var(--bad);color:#fff}
+.hint{font-size:.64rem;opacity:.5;margin-top:.6rem;line-height:1.5}
+
+/* login gate */
+.gate{position:fixed;inset:0;background:var(--porcelana);z-index:2000;display:flex;align-items:center;justify-content:center;padding:1.5rem}
+.gate .box{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:2rem 1.8rem;width:100%;max-width:380px}
+.gate h1{font-size:1.6rem;margin-bottom:.2rem}
+.gate .sub{font-size:.8rem;opacity:.6;margin-bottom:1.2rem}
+.gate .f input{font-size:1rem;padding:.7rem .8rem}
+#toast{position:fixed;top:1rem;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--ink);color:var(--porcelana);padding:.75rem 1.4rem;border-radius:999px;font-size:.8rem;font-weight:600;z-index:3000;transition:transform .35s;box-shadow:var(--shadow);max-width:92vw;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0)}
+.leaflet-container{font-family:inherit}
+.pin-edit{width:22px;height:22px;border-radius:50% 50% 50% 4px;background:var(--acento);border:2.5px solid #fff;box-shadow:0 3px 10px rgba(38,36,31,.4);transform:rotate(-45deg)}
+.pin-ctx{width:12px;height:12px;border-radius:50%;background:rgba(38,36,31,.35);border:2px solid #fff}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <div class="box">
+    <h1>Throne Room 👑</h1>
+    <p class="sub">Admin quarters. If you're not Daniel, this is going to be a short visit.</p>
+    <div class="f"><label>Email</label><input id="gEmail" placeholder="admin email"></div>
+    <div class="f"><label>Password</label><input id="gPass" type="password" onkeydown="if(event.key==='Enter')gateLogin()"></div>
+    <button class="btn btn-ink" style="width:100%;margin-top:.4rem" onclick="gateLogin()">Enter the Throne Room</button>
+    <p class="hint" id="gateMsg"></p>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="panel">
+    <div class="p-head">
+      <h1>Throne <i>Room</i></h1>
+      <p class="sub" id="stats">—</p>
+      <input id="q" placeholder="Search name or address…" oninput="renderList()">
+    </div>
+    <div class="rows" id="rows"></div>
+  </div>
+  <div class="right">
+    <div id="map"></div>
+    <div class="editor" id="editor"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3duYWV3Ymtha2pnZW1qdGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MDYxMzEsImV4cCI6MjA5OTQ4MjEzMX0.pG9WqTRiIdxOtuRa0qyqRn-8KZr-3Sb1JmWF76L0HoA";
+const ADMIN_EMAIL = "dropisso@gmail.com"; // cosmetic gate — the REAL gate is is_admin() in Postgres
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),3200)}
+function dist(a,b){const R=6371,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math.PI/180;
+  const x=Math.sin(dLa/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLo/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))} // km
+
+const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let ROWS = [], map, ctxLayer, editMarker = null, sel = null, median = [41.39, 2.17];
+
+/* ---------- gate ---------- */
+async function gateLogin(){
+  const email=$("gEmail").value.trim(), pass=$("gPass").value;
+  const {error} = await supa.auth.signInWithPassword({email, password:pass});
+  if(error){$("gateMsg").textContent = "😬 "+error.message; return}
+  boot();
+}
+async function boot(){
+  const {data:{session}} = await supa.auth.getSession();
+  if(!session){ $("gate").style.display="flex"; return }
+  if((session.user.email||"").toLowerCase() !== ADMIN_EMAIL){
+    $("gateMsg").textContent = "Logged in, but this room isn't yours. (The database agrees.)";
+    await supa.auth.signOut(); return;
+  }
+  $("gate").style.display="none";
+  await loadData();
+}
+
+/* ---------- data + suspicion ranking ---------- */
+async function loadData(){
+  const {data, error} = await supa.rpc("admin_list_thrones");
+  if(error){ toast("😬 "+error.message); return }
+  ROWS = data.map(r=>({...r, lat:r.latitude, lng:r.longitude}));
+  const withC = ROWS.filter(r=>r.lat!=null&&r.lng!=null);
+  const lats = withC.map(r=>r.lat).sort((a,b)=>a-b), lngs = withC.map(r=>r.lng).sort((a,b)=>a-b);
+  if(lats.length){ median = [lats[Math.floor(lats.length/2)], lngs[Math.floor(lngs.length/2)]]; }
+  ROWS.forEach(r=>{
+    r.far = (r.lat==null) ? Infinity : dist(median,[r.lat,r.lng]);
+  });
+  ROWS.sort((a,b)=>b.far-a.far); // most suspicious first
+  const sus = ROWS.filter(r=>r.far===Infinity || r.far>300).length;
+  $("stats").textContent = `${ROWS.length} thrones · ${sus} suspicious (no coords or >300 km from the pack)`;
+  initMap(withC);
+  renderList();
+}
+function initMap(withC){
+  if(!map){
+    map = L.map("map",{zoomControl:true}).setView(median,12);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+      {attribution:"&copy; OpenStreetMap &copy; CARTO",maxZoom:20,subdomains:"abcd"}).addTo(map);
+    ctxLayer = L.layerGroup().addTo(map);
+  }
+  ctxLayer.clearLayers();
+  withC.forEach(r=>{
+    L.marker([r.lat,r.lng],{icon:L.divIcon({html:'<div class="pin-ctx"></div>',iconSize:[12,12],iconAnchor:[6,6]})})
+      .addTo(ctxLayer).bindTooltip(esc(r.name),{direction:"top"})
+      .on("click",()=>select(r.id));
+  });
+}
+function badge(r){
+  if(r.lat==null) return '<span class="tag nocoord">no coords</span>';
+  if(r.far>300) return `<span class="tag far">${Math.round(r.far)} km away</span>`;
+  return '<span class="tag ok">ok</span>';
+}
+function renderList(){
+  const q = $("q").value.trim().toLowerCase();
+  $("rows").innerHTML = ROWS
+    .filter(r=>!q || (r.name||"").toLowerCase().includes(q) || (r.address||"").toLowerCase().includes(q))
+    .map(r=>`<div class="rowi ${sel===r.id?"sel":""}" onclick="select(${r.id})">
+      <div><div class="n">${esc(r.name)}</div><div class="a">#${r.id} · ${esc(r.address||"no address")}</div></div>
+      ${badge(r)}
+    </div>`).join("");
+}
+
+/* ---------- editor ---------- */
+function select(id){
+  sel = id; renderList();
+  const r = ROWS.find(x=>x.id===id);
+  const start = (r.lat!=null) ? [r.lat,r.lng] : median;
+  if(editMarker) map.removeLayer(editMarker);
+  editMarker = L.marker(start,{draggable:true,icon:L.divIcon({html:'<div class="pin-edit"></div>',iconSize:[22,22],iconAnchor:[11,22]})}).addTo(map);
+  editMarker.on("dragend",()=>updCoords());
+  map.flyTo(start, (r.lat!=null && r.far<300)? 16 : 5, {duration:.6});
+  $("editor").classList.add("open");
+  $("editor").innerHTML = `
+    <h2>${esc(r.name)}</h2>
+    <p class="eid">#${r.id} · ${r.n_reviews} review${r.n_reviews==1?"":"s"} · ${r.lat==null?"NO coordinates":Math.round(r.far)+" km from the pack"}</p>
+    <div class="f"><label>Name</label><input id="eName" value="${esc(r.name)}"></div>
+    <div class="f"><label>Address</label><input id="eAddr" value="${esc(r.address||"")}"></div>
+    <div class="coords" id="eCoords">—</div>
+    <div class="tools">
+      <button onclick="tSwap()" title="lat ↔ lng">⇄ Swap lat/lng</button>
+      <button onclick="tFlip('lat')">± lat</button>
+      <button onclick="tFlip('lng')">± lng</button>
+      <button onclick="tGeocode()">📍 Geocode address</button>
+      <button onclick="tReset()">↩ Original</button>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ink" onclick="saveThrone()">Save</button>
+      <button class="btn btn-danger" onclick="deleteThrone()">Delete</button>
+    </div>
+    <p class="hint">Drag the red pin to reposition. "Swap" and "±" preview the classic coordinate bugs — save only writes when you press Save. Delete is soft (reversible in SQL).</p>`;
+  updCoords();
+}
+function pos(){ const p=editMarker.getLatLng(); return [p.lat,p.lng] }
+function setPos(lat,lng,fly=true){ editMarker.setLatLng([lat,lng]); if(fly)map.flyTo([lat,lng],Math.max(map.getZoom(),13),{duration:.5}); updCoords() }
+function updCoords(){ const [a,b]=pos(); $("eCoords").textContent = `lat ${a.toFixed(6)} · lng ${b.toFixed(6)} · ${Math.round(dist(median,[a,b]))} km from pack` }
+function tSwap(){ const [a,b]=pos(); setPos(b,a) }
+function tFlip(w){ let [a,b]=pos(); if(w==="lat")a=-a; else b=-b; setPos(a,b) }
+function tReset(){ const r=ROWS.find(x=>x.id===sel); if(r.lat!=null) setPos(r.lat,r.lng) }
+async function tGeocode(){
+  const q = $("eAddr").value.trim(); if(!q){toast("No address to geocode.");return}
+  toast("Asking OpenStreetMap…");
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const j = await res.json();
+    if(!j.length){toast("Nominatim couldn't find that address.");return}
+    setPos(+j[0].lat, +j[0].lon);
+    toast("📍 "+j[0].display_name.split(",").slice(0,2).join(","));
+  }catch(e){ toast("Geocoding hiccup — try again.") }
+}
+async function saveThrone(){
+  const r = ROWS.find(x=>x.id===sel);
+  const [lat,lng] = pos();
+  const name = $("eName").value.trim(), addr = $("eAddr").value.trim();
+  toast("Saving…");
+  const {error:e1} = await supa.rpc("admin_set_coordinates",{p_id:r.id,p_lat:lat,p_lng:lng});
+  if(e1){toast("😬 "+e1.message);return}
+  if(name!==r.name || addr!==(r.address||"")){
+    const {error:e2} = await supa.rpc("admin_update_bathroom",{p_id:r.id,p_name:name,p_address:addr});
+    if(e2){toast("😬 "+e2.message);return}
+  }
+  r.lat=lat; r.lng=lng; r.latitude=lat; r.longitude=lng; r.name=name; r.address=addr;
+  r.far = dist(median,[lat,lng]);
+  renderList(); initMap(ROWS.filter(x=>x.lat!=null));
+  toast(`✓ #${r.id} saved. ${Math.round(r.far)} km from the pack.`);
+}
+async function deleteThrone(){
+  const r = ROWS.find(x=>x.id===sel);
+  if(!confirm(`Soft-delete "${r.name}" (#${r.id})? It disappears from the app but stays recoverable in the database.`)) return;
+  const {error} = await supa.rpc("admin_delete_bathroom",{p_id:r.id});
+  if(error){toast("😬 "+error.message);return}
+  ROWS = ROWS.filter(x=>x.id!==r.id);
+  sel=null; $("editor").classList.remove("open");
+  if(editMarker){map.removeLayer(editMarker);editMarker=null}
+  renderList(); initMap(ROWS.filter(x=>x.lat!=null));
+  toast(`🗑 "${r.name}" retired with honors.`);
+}
+
+boot();
+</script>
+</body>
+</html>
