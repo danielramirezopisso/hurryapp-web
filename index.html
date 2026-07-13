@@ -276,6 +276,7 @@ button{font-family:inherit;cursor:pointer}
 <div id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ================= LIVE DATA — Supabase ================= */
 const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
@@ -315,13 +316,8 @@ function quipFor(b){
   else pool=QUIPS.mid;
   return pool[seeded(b.id,pool.length)];
 }
-async function loadThrones(){
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/map_thrones?select=*`,{
-    headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
-  });
-  if(!r.ok) throw new Error("Supabase replied "+r.status+" — check URL/key and that the map_thrones view exists");
-  const rows = await r.json();
-  BATHROOMS = rows.map(x=>({
+function mapRow(x){
+  const b = {
     id:x.id, name:x.name||"Unnamed Throne", addr:x.address||"Location classified",
     lat:+x.latitude, lng:+x.longitude,
     score:x.score===null?null:+x.score, n:+x.n_reviews||0,
@@ -330,13 +326,34 @@ async function loadThrones(){
     soft:x.paper_softness===null?null:+x.paper_softness,
     handi:!!x.handicapped, baby:!!x.babies,
     paper:x.moment_of_truth==null?"unknown":(MOT_MAP[x.moment_of_truth]||"unknown"),
-    photos:+x.n_photos||0
-  })).filter(b=>Number.isFinite(b.lat)&&Number.isFinite(b.lng));
-  BATHROOMS.forEach(b=>{b.review=quipFor(b);b.who=HANDLES[seeded(b.id+7,HANDLES.length)]});
+    photos:+x.n_photos||0,
+    latest:x.latest_review||null
+  };
+  if(b.latest){ b.review=b.latest; b.who="@a_real_survivor"; }
+  else { b.review=quipFor(b); b.who=HANDLES[seeded(b.id+7,HANDLES.length)]; }
+  return b;
+}
+async function loadThrones(){
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/map_thrones?select=*`,{
+    headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
+  });
+  if(!r.ok) throw new Error("Supabase replied "+r.status+" — check URL/key and that the map_thrones view exists");
+  const rows = await r.json();
+  BATHROOMS = rows.map(mapRow).filter(b=>Number.isFinite(b.lat)&&Number.isFinite(b.lng));
+}
+async function refetchThrone(id){
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/map_thrones?id=eq.${id}&select=*`,{
+    headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
+  });
+  const rows = await r.json();
+  if(!rows.length) return;
+  const nb = mapRow(rows[0]);
+  const i = BATHROOMS.findIndex(b=>b.id===id);
+  if(i>=0) BATHROOMS[i]=nb; else BATHROOMS.push(nb);
 }
 
 /* ================= STATE ================= */
-let map, markers = {}, activeFilter = "all", selectedId = null, loggedIn = false, addMode = false, routeLine = null;
+let map, markers = {}, activeFilter = "all", selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
 
 /* ================= HELPERS ================= */
 const $ = id => document.getElementById(id);
@@ -561,9 +578,9 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
 /* ---- rate (full dimensions, matching the Postgres schema) ---- */
 let pick = {};
 function openRate(id){
-  if(!loggedIn){ openAuth("login","You need an account to judge other people's toilets. It's only fair."); return; }
+  if(!loggedIn){ openAuth("email","You need an account to judge other people's toilets. It's only fair."); return; }
   const b = BATHROOMS.find(x=>x.id===id);
-  pick = {id,score:0,clean:0,smell:0,paper:null,handi:null,baby:null};
+  pick = {id,score:0,clean:0,smell:0,soft:0,paper:null,handi:null,baby:null};
   openModal(`
     <h2>Rate ${esc(b.name)}</h2>
     <p class="m-sub">Your civic duty. Future desperate strangers thank you.</p>
@@ -574,6 +591,8 @@ function openRate(id){
       <div class="seg" id="segClean">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('clean',${n},this)">${n}</button>`).join("")}</div></div>
     <div class="m-row"><label>👃 Smell (1 = crime scene · 5 = spa)</label>
       <div class="seg" id="segSmell">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('smell',${n},this)">${n}</button>`).join("")}</div></div>
+    <div class="m-row"><label>🧻 Paper softness (1 = sandpaper · 5 = cloud)</label>
+      <div class="seg" id="segSoft">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('soft',${n},this)">${n}</button>`).join("")}</div></div>
     <div class="m-row"><label>🧻 The Moment of Truth™ — was there paper?</label>
       <div class="seg" id="segPaper">
         <button onclick="setSegV('paper','yes',this)">Yes 🙌</button>
@@ -588,7 +607,7 @@ function openRate(id){
     <div class="m-row"><label>One-line review — make it count</label>
       <input id="revText" maxlength="120" placeholder="e.g. 'The hand dryer could launch a kite.'"></div>
     <button class="btn btn-ink" style="width:100%" onclick="submitRate()">Submit judgement</button>
-    <p class="demo-note">Demo — nothing is saved. Your opinion still matters. Sort of.</p>`);
+    <p class="demo-note">This goes straight into the real database. Choose your words wisely.</p>`);
 }
 function setScore(n){
   pick.score=n;
@@ -597,26 +616,27 @@ function setScore(n){
 function setSeg(k,n,btn){pick[k]=n;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
 function setSegV(k,v,btn){pick[k]=v;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
 function toggleAttr(k,btn){pick[k]=!pick[k];btn.classList.toggle("on")}
-function submitRate(){
+async function submitRate(){
   if(!pick.score){toast("Zero rolls is not a rating. It's a cry for help. Pick 1–5.");return}
-  const b = BATHROOMS.find(x=>x.id===pick.id);
-  b.score = b.score===null?pick.score:Math.round(((b.score*b.n + pick.score)/(b.n+1))*10)/10;
-  b.n += 1;
-  if(pick.clean) b.clean = b.clean===null?pick.clean:Math.round(((b.clean+pick.clean)/2)*10)/10;
-  if(pick.smell) b.smell = b.smell===null?pick.smell:Math.round(((b.smell+pick.smell)/2)*10)/10;
-  if(pick.paper) b.paper = pick.paper;
-  if(pick.handi) b.handi = true;
-  if(pick.baby) b.baby = true;
-  const rev = $("revText").value.trim();
-  if(rev){ b.review = rev; b.who = "@you_just_now"; }
-  closeModal(); drawMarkers(); openDetail(b.id);
-  toast("Judgement recorded in this session. Writing to the real DB lands in phase 2. 🧻");
+  const motNum = pick.paper ? ({yes:1,maybe:2,no:3})[pick.paper] : null;
+  toast("Filing your judgement…");
+  const {error} = await supa.rpc("rate_throne",{
+    p_bathroom_id:pick.id, p_score:pick.score,
+    p_clean:pick.clean||null, p_smell:pick.smell||null, p_soft:pick.soft||null,
+    p_mot:motNum, p_handi:pick.handi||null, p_babies:pick.baby||null,
+    p_text:($("revText").value.trim()||null)
+  });
+  if(error){toast("😬 "+error.message);return}
+  closeModal();
+  await refetchThrone(pick.id);
+  drawMarkers(); openDetail(pick.id);
+  toast("Judgement recorded. Forever. In the real database. 🧻");
 }
 
 /* ---- add a throne ---- */
 let nbScore = 0;
 function startAdd(){
-  if(!loggedIn){ openAuth("signup","Create an account first — anonymous thrones cannot be trusted."); return; }
+  if(!loggedIn){ openAuth("email","Create an account first — anonymous thrones cannot be trusted."); return; }
   addMode = true; closeModal(); closeSheet();
   toast("👆 Tap the map where the throne lives.");
 }
@@ -629,43 +649,63 @@ function openAddForm(latlng){
     <div class="m-row"><label>First impression, in rolls</label>
       <div class="seg">${[1,2,3,4,5].map(n=>`<button onclick="nbScore=${n};this.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on')">${n}</button>`).join("")}</div></div>
     <button class="btn btn-ink" style="width:100%" onclick="submitNew(${latlng.lat},${latlng.lng})">Add to the map of civilization</button>
-    <p class="demo-note">Demo — thrones live only in this session</p>`);
+    <p class="demo-note">This creates a real throne in the real database. Power. Responsibility.</p>`);
 }
-function submitNew(lat,lng){
-  const name = $("nbName").value.trim() || "Unnamed Throne";
-  const addr = $("nbAddr").value.trim() || "Somewhere out there";
-  BATHROOMS.push({id:nextId++,name,addr,lat,lng,score:nbScore||3,n:1,paper:"maybe",handi:false,baby:false,clean:nbScore||3,smell:nbScore||3,soft:null,photos:0,review:"Freshly discovered. Reviews pending. Enter at your own risk.",who:"@pioneer"});
-  nbScore = 0; closeModal(); drawMarkers();
-  toast(`🏛️ "${esc(name)}" is now on the map. Humanity thanks you.`);
+async function submitNew(lat,lng){
+  const name = $("nbName").value.trim();
+  if(!name){toast("A throne needs a name. Even a bad one.");return}
+  const addr = $("nbAddr").value.trim();
+  toast("Enthroning…");
+  const {data,error} = await supa.rpc("add_throne",{p_name:name,p_address:addr||null,p_lat:lat,p_lng:lng,p_score:nbScore||null});
+  if(error){toast("😬 "+error.message);return}
+  nbScore = 0; closeModal();
+  await refetchThrone(data);
+  drawMarkers(); openDetail(data);
+  toast(`🏛️ "${esc(name)}" is on the map. Forever. Humanity thanks you.`);
 }
 
-/* ---- auth: login + sign up (restored registration) ---- */
-function openAuth(tab="login", reason){
-  openModal(`
-    <div class="auth-tabs">
-      <button id="tabLogin" class="${tab==="login"?"on":""}" onclick="openAuth('login')">Log in</button>
-      <button id="tabSignup" class="${tab==="signup"?"on":""}" onclick="openAuth('signup')">Create account</button>
-    </div>
-    ${reason?`<p class="m-sub">${esc(reason)}</p>`:""}
-    ${tab==="login" ? `
-      <div class="m-row"><label>Email</label><input placeholder="you@holdingiton.com"></div>
-      <div class="m-row"><label>Password</label><input type="password" placeholder="••••••••"></div>
-      <button class="btn btn-ink" style="width:100%" onclick="doLogin()">Let me in — in every sense</button>
-    ` : `
-      <div class="m-row"><label>Username</label><input placeholder="e.g. throne_hunter"></div>
-      <div class="m-row"><label>Email</label><input placeholder="you@holdingiton.com"></div>
-      <div class="m-row"><label>Password</label><input type="password" placeholder="••••••••"></div>
-      <button class="btn btn-ink" style="width:100%" onclick="doLogin()">Join the resistance</button>
-    `}
-    <p class="demo-note">Demo — any credentials work. We trust you. Foolishly.</p>`);
+/* ---- auth: real Supabase email-code login ---- */
+let authEmail = "";
+function openAuth(step="email", reason){
+  if(step==="email"){
+    openModal(`
+      <h2>Log in / Sign up</h2>
+      <p class="m-sub">${esc(reason||"One email. One code. Zero passwords to forget.")}</p>
+      <div class="m-row"><label>Email</label><input id="authEmail" placeholder="you@holdingiton.com" onkeydown="if(event.key==='Enter')sendCode()"></div>
+      <button class="btn btn-ink" style="width:100%" onclick="sendCode()">Send me a code</button>
+      <p class="demo-note">First time here? Same flow — the account creates itself.</p>`);
+    setTimeout(()=>$("authEmail").focus(),100);
+  } else {
+    openModal(`
+      <h2>Check your inbox</h2>
+      <p class="m-sub">We sent a 6-digit code to <b>${esc(authEmail)}</b>. The spam folder counts as an inbox.</p>
+      <div class="m-row"><label>Code</label><input id="authCode" inputmode="numeric" maxlength="6" placeholder="123456" onkeydown="if(event.key==='Enter')verifyCode()"></div>
+      <button class="btn btn-ink" style="width:100%" onclick="verifyCode()">Verify & enter</button>
+      <p class="demo-note">Nothing after ~1 min? Close this and try again.</p>`);
+    setTimeout(()=>$("authCode").focus(),100);
+  }
+}
+async function sendCode(){
+  authEmail = $("authEmail").value.trim();
+  if(!authEmail.includes("@")){toast("That's not an email. Nice try.");return}
+  toast("Sending code…");
+  const {error} = await supa.auth.signInWithOtp({email:authEmail});
+  if(error){toast("😬 "+error.message);return}
+  openAuth("code");
+}
+async function verifyCode(){
+  const token = $("authCode").value.trim();
+  const {error} = await supa.auth.verifyOtp({email:authEmail, token, type:"email"});
+  if(error){toast("😬 "+error.message);return}
+  closeModal(); toast("Welcome. Your judgement is now legally binding.");
+}
+function setAuthUI(session){
+  loggedIn = !!session;
+  $("loginBtn").textContent = loggedIn ? "@"+((session.user&&session.user.email)||"you").split("@")[0]+" 🧻" : "Log in";
 }
 function toggleLogin(){
-  if(loggedIn){ loggedIn=false; $("loginBtn").textContent="Log in"; toast("Logged out. Stay regular. 👋"); }
-  else openAuth("login");
-}
-function doLogin(){
-  loggedIn = true; $("loginBtn").textContent="@you 🧻";
-  closeModal(); toast("Welcome. Your judgement is now legally binding.");
+  if(loggedIn){ supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
+  else openAuth("email");
 }
 
 /* ---- about ---- */
@@ -692,6 +732,9 @@ function openAbout(){
 (async function(){
   try{
     if(SUPABASE_URL.indexOf("PASTE")===0) throw new Error("missing config");
+    supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supa.auth.getSession().then(({data})=>setAuthUI(data.session));
+    supa.auth.onAuthStateChange((_e,session)=>setAuthUI(session));
     await loadThrones();
     if(!BATHROOMS.length) throw new Error("view returned 0 rows — did you run the map_thrones SQL?");
     YOU = [
