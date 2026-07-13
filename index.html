@@ -435,7 +435,7 @@ function initMap(){
   L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
     .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
   drawMarkers();
-  map.on("click", e=>{ if(addMode){ addMode=false; $("addBanner").classList.remove("on"); openAddForm(e.latlng); } });
+  map.on("click", e=>{ if(addMode){ exitAddMode(); openAddForm(e.latlng); } });
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
   window.addEventListener("orientationchange", ()=>{ setTimeout(()=>map&&map.invalidateSize(),300) });
@@ -474,6 +474,7 @@ function drawMarkers(){
 
 /* ================= LIST ================= */
 function openList(){
+  exitAddMode();
   selectedId = null; drawMarkers();
   const all = BATHROOMS.filter(passesFilter)
     .map(b=>({...b,d:dist(YOU,[b.lat,b.lng])})).sort((a,b)=>a.d-b.d);
@@ -505,6 +506,7 @@ function openList(){
 
 /* ================= DETAIL ================= */
 function openDetail(id){
+  exitAddMode();
   selectedId = id; drawMarkers();
   const b = BATHROOMS.find(x=>x.id===id);
   const d = dist(YOU,[b.lat,b.lng]);
@@ -555,6 +557,7 @@ function closeSheet(){$("sheet").classList.remove("open");$("panicBtn").classLis
 
 /* ================= PANIC ================= */
 function panic(){
+  exitAddMode();
   const flash = $("panicFlash"), txt = $("pfText");
   txt.innerHTML = "Locating the nearest <i>decent</i> throne…";
   flash.classList.add("go");
@@ -630,10 +633,10 @@ function toggleColorblind(){
 }
 
 /* ================= MODALS ================= */
-function openModal(html){$("modalBox").innerHTML=html;$("modalBackdrop").classList.add("open")}
+function openModal(html){exitAddMode();$("modalBox").innerHTML=html;$("modalBackdrop").classList.add("open")}
 function closeModal(){$("modalBackdrop").classList.remove("open")}
 $("modalBackdrop").addEventListener("click",e=>{if(e.target===$("modalBackdrop"))closeModal()});
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();exitAddMode()}});
 
 /* ---- rate (full dimensions, matching the Postgres schema) ---- */
 let pick = {};
@@ -695,14 +698,17 @@ async function submitRate(){
 
 /* ---- add a throne ---- */
 let nbScore = 0;
-function startAdd(){
-  if(!loggedIn){ openAuth("email","One tap of login, then your throne joins the map."); return; }
-  addMode = true; closeModal(); closeSheet();
-  $("addBanner").classList.add("on");
-}
-function cancelAdd(){
+function exitAddMode(){
   addMode = false;
   $("addBanner").classList.remove("on");
+}
+function cancelAdd(){ exitAddMode(); }
+function startAdd(){
+  if(addMode){ exitAddMode(); return; }  // the + is a toggle: tap again to cancel
+  if(!loggedIn){ openAuth("email","One tap of login, then your throne joins the map."); return; }
+  closeModal(); closeSheet();
+  addMode = true;
+  $("addBanner").classList.add("on");
 }
 function openAddForm(latlng){
   openModal(`
