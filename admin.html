@@ -100,6 +100,7 @@ button{font-family:inherit;cursor:pointer}
       <h1>Throne <i>Room</i></h1>
       <p class="sub" id="stats">—</p>
       <input id="q" placeholder="Search name or address…" oninput="renderList()">
+      <button class="btn btn-ink" id="auditBtn" style="width:100%;margin-top:.6rem" onclick="toggleAudit()">🔍 Audit all addresses vs pins</button>
     </div>
     <div class="rows" id="rows"></div>
   </div>
@@ -126,7 +127,10 @@ function dist(a,b){const R=6371,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))} // km
 
 const supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let ROWS = [], map, ctxLayer, editMarker = null, sel = null, median = [41.39, 2.17];
+let ROWS = [], map, ctxLayer, editMarker = null, sugMarker = null, sel = null, median = [41.39, 2.17];
+let AUD = {}; try{ AUD = JSON.parse(sessionStorage.getItem("hurry_audit")||"{}") }catch(e){}
+let auditRunning = false;
+function saveAud(){ try{ sessionStorage.setItem("hurry_audit", JSON.stringify(AUD)) }catch(e){} }
 
 /* ---------- gate ---------- */
 async function gateLogin(){
@@ -154,14 +158,27 @@ async function loadData(){
   const withC = ROWS.filter(r=>r.lat!=null&&r.lng!=null);
   const lats = withC.map(r=>r.lat).sort((a,b)=>a-b), lngs = withC.map(r=>r.lng).sort((a,b)=>a-b);
   if(lats.length){ median = [lats[Math.floor(lats.length/2)], lngs[Math.floor(lngs.length/2)]]; }
-  ROWS.forEach(r=>{
-    r.far = (r.lat==null) ? Infinity : dist(median,[r.lat,r.lng]);
-  });
-  ROWS.sort((a,b)=>b.far-a.far); // most suspicious first
-  const sus = ROWS.filter(r=>r.far===Infinity || r.far>300).length;
-  $("stats").textContent = `${ROWS.length} thrones · ${sus} suspicious (no coords or >300 km from the pack)`;
+  updateStats();
   initMap(withC);
   renderList();
+}
+function sev(r){ // sort severity: worst first
+  const a = AUD[r.id];
+  if(r.lat==null) return 0;
+  if(!a) return 4;
+  if(a.status==="bad") return 1;
+  if(a.status==="warn") return 2;
+  if(a.status==="notfound") return 3;
+  return 5; // ok
+}
+function updateStats(){
+  const noC = ROWS.filter(r=>r.lat==null).length;
+  const audited = ROWS.filter(r=>AUD[r.id]).length;
+  const bad = ROWS.filter(r=>AUD[r.id]&&AUD[r.id].status==="bad").length;
+  const warn = ROWS.filter(r=>AUD[r.id]&&AUD[r.id].status==="warn").length;
+  $("stats").textContent = audited
+    ? `${ROWS.length} thrones · ${bad} off >1 km · ${warn} off 150m–1km · ${noC} without coords · ${audited} audited`
+    : `${ROWS.length} thrones · ${noC} without coordinates · run the audit to check precision`;
 }
 function initMap(withC){
   if(!map){
@@ -179,18 +196,62 @@ function initMap(withC){
 }
 function badge(r){
   if(r.lat==null) return '<span class="tag nocoord">no coords</span>';
-  if(r.far>300) return `<span class="tag far">${Math.round(r.far)} km away</span>`;
-  return '<span class="tag ok">ok</span>';
+  const a = AUD[r.id];
+  if(!a) return '<span class="tag" style="background:rgba(38,36,31,.07);color:#666">not audited</span>';
+  if(a.status==="ok") return `<span class="tag ok">✓ ${Math.round(a.d)} m</span>`;
+  if(a.status==="warn") return `<span class="tag nocoord">⚠ ${Math.round(a.d)} m</span>`;
+  if(a.status==="bad") return `<span class="tag far">✗ ${a.d>=1000?(a.d/1000).toFixed(1)+" km":Math.round(a.d)+" m"}</span>`;
+  return '<span class="tag" style="background:rgba(38,36,31,.07);color:#666">? not found</span>';
 }
 function renderList(){
   const q = $("q").value.trim().toLowerCase();
   $("rows").innerHTML = ROWS
+    .slice().sort((a,b)=>sev(a)-sev(b) || (AUD[b.id]?.d||0)-(AUD[a.id]?.d||0))
     .filter(r=>!q || (r.name||"").toLowerCase().includes(q) || (r.address||"").toLowerCase().includes(q))
     .map(r=>`<div class="rowi ${sel===r.id?"sel":""}" onclick="select(${r.id})">
       <div><div class="n">${esc(r.name)}</div><div class="a">#${r.id} · ${esc(r.address||"no address")}</div></div>
       ${badge(r)}
     </div>`).join("");
 }
+
+/* ---------- audit: geocode every address, measure the gap ---------- */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+async function geocode(q){
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+  if(!res.ok) throw new Error("nominatim "+res.status);
+  const j = await res.json();
+  return j.length ? {lat:+j[0].lat, lng:+j[0].lon} : null;
+}
+function classify(d){ return d<=150 ? "ok" : d<=1000 ? "warn" : "bad" }
+async function toggleAudit(){
+  if(auditRunning){ auditRunning=false; $("auditBtn").textContent="🔍 Audit all addresses vs pins"; return; }
+  auditRunning = true;
+  const todo = ROWS.filter(r=>r.address && !AUD[r.id]);
+  if(!todo.length){ toast("Everything already audited. Clear with double-click on the button."); auditRunning=false; return; }
+  let i = 0;
+  for(const r of todo){
+    if(!auditRunning) break;
+    i++;
+    $("auditBtn").textContent = `⏳ Auditing ${i}/${todo.length} — click to stop`;
+    try{
+      const g = await geocode(r.address);
+      if(!g) AUD[r.id] = {status:"notfound"};
+      else if(r.lat==null) AUD[r.id] = {status:"notfound", glat:g.lat, glng:g.lng, d:0}; // suggestion for orphans
+      else {
+        const d = dist([r.lat,r.lng],[g.lat,g.lng])*1000; // meters
+        AUD[r.id] = {status:classify(d), d, glat:g.lat, glng:g.lng};
+      }
+    }catch(e){ AUD[r.id] = {status:"notfound"}; }
+    saveAud(); updateStats();
+    if(i%10===0) renderList();
+    await sleep(1100); // Nominatim fair-use: 1 req/sec
+  }
+  auditRunning = false;
+  $("auditBtn").textContent = "🔍 Audit all addresses vs pins";
+  renderList(); updateStats();
+  toast("Audit done. Worst offenders are now at the top.");
+}
+$("auditBtn").addEventListener("dblclick",()=>{ AUD={}; saveAud(); renderList(); updateStats(); toast("Audit results cleared."); });
 
 /* ---------- editor ---------- */
 function select(id){
@@ -204,7 +265,7 @@ function select(id){
   $("editor").classList.add("open");
   $("editor").innerHTML = `
     <h2>${esc(r.name)}</h2>
-    <p class="eid">#${r.id} · ${r.n_reviews} review${r.n_reviews==1?"":"s"} · ${r.lat==null?"NO coordinates":Math.round(r.far)+" km from the pack"}</p>
+    <p class="eid">#${r.id} · ${r.n_reviews} review${r.n_reviews==1?"":"s"} · ${r.lat==null?"NO coordinates":(AUD[r.id]?(AUD[r.id].status==="notfound"?"address not found by geocoder":Math.round(AUD[r.id].d)+" m from its geocoded address"):"not audited yet")}</p>
     <div class="f"><label>Name</label><input id="eName" value="${esc(r.name)}"></div>
     <div class="f"><label>Address</label><input id="eAddr" value="${esc(r.address||"")}"></div>
     <div class="coords" id="eCoords">—</div>
@@ -213,6 +274,7 @@ function select(id){
       <button onclick="tFlip('lat')">± lat</button>
       <button onclick="tFlip('lng')">± lng</button>
       <button onclick="tGeocode()">📍 Geocode address</button>
+      <button onclick="tUseSuggestion()" id="tSug" style="display:none">✨ Use audit suggestion</button>
       <button onclick="tReset()">↩ Original</button>
     </div>
     <div class="actions">
@@ -220,7 +282,18 @@ function select(id){
       <button class="btn btn-danger" onclick="deleteThrone()">Delete</button>
     </div>
     <p class="hint">Drag the red pin to reposition. "Swap" and "±" preview the classic coordinate bugs — save only writes when you press Save. Delete is soft (reversible in SQL).</p>`;
+  if(sugMarker){ map.removeLayer(sugMarker); sugMarker=null; }
+  const a = AUD[r.id];
+  if(a && a.glat!=null){
+    sugMarker = L.marker([a.glat,a.glng],{icon:L.divIcon({html:'<div style="width:18px;height:18px;border-radius:50% 50% 50% 4px;background:#C9A227;border:2.5px solid #fff;box-shadow:0 3px 10px rgba(38,36,31,.4);transform:rotate(-45deg)"></div>',iconSize:[18,18],iconAnchor:[9,18]})})
+      .addTo(map).bindTooltip("Geocoded address (suggestion)",{direction:"top"});
+    setTimeout(()=>{ const b=$("tSug"); if(b) b.style.display=""; },0);
+  }
   updCoords();
+}
+function tUseSuggestion(){
+  const a = AUD[sel && ROWS.find(x=>x.id===sel) ? sel : null] || AUD[sel];
+  if(a && a.glat!=null){ setPos(a.glat, a.glng); toast("Moved to the geocoded address. Review, then Save."); }
 }
 function pos(){ const p=editMarker.getLatLng(); return [p.lat,p.lng] }
 function setPos(lat,lng,fly=true){ editMarker.setLatLng([lat,lng]); if(fly)map.flyTo([lat,lng],Math.max(map.getZoom(),13),{duration:.5}); updCoords() }
@@ -251,9 +324,12 @@ async function saveThrone(){
     if(e2){toast("😬 "+e2.message);return}
   }
   r.lat=lat; r.lng=lng; r.latitude=lat; r.longitude=lng; r.name=name; r.address=addr;
-  r.far = dist(median,[lat,lng]);
-  renderList(); initMap(ROWS.filter(x=>x.lat!=null));
-  toast(`✓ #${r.id} saved. ${Math.round(r.far)} km from the pack.`);
+  if(AUD[r.id] && AUD[r.id].glat!=null){
+    const d = dist([lat,lng],[AUD[r.id].glat,AUD[r.id].glng])*1000;
+    AUD[r.id] = {...AUD[r.id], d, status:classify(d)}; saveAud();
+  }
+  renderList(); updateStats(); initMap(ROWS.filter(x=>x.lat!=null));
+  toast(`✓ #${r.id} saved.`);
 }
 async function deleteThrone(){
   const r = ROWS.find(x=>x.id===sel);
