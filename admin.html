@@ -198,7 +198,7 @@ function badge(r){
   if(r.lat==null) return '<span class="tag nocoord">no coords</span>';
   const a = AUD[r.id];
   if(!a) return '<span class="tag" style="background:rgba(38,36,31,.07);color:#666">not audited</span>';
-  if(a.status==="ok") return `<span class="tag ok">✓ ${Math.round(a.d)} m</span>`;
+  if(a.status==="ok") return a.d==null ? '<span class="tag ok">✓ street match</span>' : `<span class="tag ok">✓ ${Math.round(a.d)} m</span>`;
   if(a.status==="warn") return `<span class="tag nocoord">⚠ ${Math.round(a.d)} m</span>`;
   if(a.status==="bad") return `<span class="tag far">✗ ${a.d>=1000?(a.d/1000).toFixed(1)+" km":Math.round(a.d)+" m"}</span>`;
   return '<span class="tag" style="background:rgba(38,36,31,.07);color:#666">? not found</span>';
@@ -214,42 +214,102 @@ function renderList(){
     </div>`).join("");
 }
 
-/* ---------- audit: geocode every address, measure the gap ---------- */
+/* ---------- audit v2: smart geocoding with locality validation + reverse fallback ---------- */
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
-async function geocode(q){
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
-  if(!res.ok) throw new Error("nominatim "+res.status);
-  const j = await res.json();
-  return j.length ? {lat:+j[0].lat, lng:+j[0].lon} : null;
+let lastReq = 0;
+async function nomi(url){ // global 1.1s rate limit across ALL nominatim calls
+  const wait = Math.max(0, 1100-(Date.now()-lastReq));
+  if(wait) await sleep(wait);
+  lastReq = Date.now();
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("nominatim "+r.status);
+  return r.json();
+}
+const norm = x => String(x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+const COUNTRIES = ["spain","espana","catalonia","cataluna","united states","estados unidos","france","greece","turkey","south africa","argentina","andorra","switzerland","united kingdom","canada","ee uu","america"];
+function cleanAddr(a){
+  return a
+    .replace(/\b(bajos|baixos|baix|local \d+|planta \w+|pis \d+|suite \d+|floor \d+)\b/gi," ")
+    .replace(/\bC\.?\//g,"Calle ").replace(/\bC\.\s+/g,"Calle ")
+    .replace(/\bPl\.\s*/g,"Plaza ").replace(/\bAvda?\.\s*/g,"Avinguda ")
+    .replace(/\bPg\.\s*/g,"Passeig ").replace(/\bP\.?º\s*/g,"Paseo ").replace(/\bCtra\.\s*/g,"Carretera ")
+    .replace(/\s+/g," ").trim();
+}
+function localityCandidates(addr){ // city-ish tokens from the end — never the street chunk itself
+  const toks = addr.split(",");
+  const out = [];
+  for(let i=toks.length-1; i>=1 && out.length<3; i--){
+    const t = norm(toks[i]).replace(/\b\d+\b/g,"").trim();
+    if(t.length>2 && !COUNTRIES.includes(t)) out.push(t);
+  }
+  return out;
+}
+function resultMatchesAddress(res, addr){
+  const cands = localityCandidates(addr);
+  if(cands.length===0) return true; // address too vague to validate — accept
+  // when we have both province and town (e.g. "…Mataró, Barcelona"), require the specific town, not just the province
+  const useful = cands.length>1 ? cands.slice(1) : cands;
+  const A = res.address||{};
+  const locs = [A.city,A.town,A.village,A.municipality,A.city_district,A.suburb,A.county,A.state_district,A.state]
+    .filter(Boolean).map(norm);
+  if(locs.length) return useful.some(c => locs.some(l => l.includes(c)||c.includes(l)));
+  return useful.some(c => norm(res.display_name||"").includes(c)); // only if no structured locality came back
+}
+async function geocodeSmart(addr){
+  const variants = [addr];
+  const c = cleanAddr(addr);
+  if(c!==addr) variants.push(c);
+  const cands = localityCandidates(addr);
+  const street = c.split(",")[0];
+  if(cands.length && street && norm(street)!==cands[0]) variants.push(street+", "+cands[0]);
+  for(const q of variants.slice(0,3)){
+    try{
+      const j = await nomi(`https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`);
+      if(j.length && resultMatchesAddress(j[0], addr)) return {lat:+j[0].lat, lng:+j[0].lon};
+    }catch(e){}
+  }
+  return null; // never return an unvalidated (wrong-city) suggestion
+}
+async function reverseConfirms(r){ // does the street under the pin match the stored address?
+  try{
+    const j = await nomi(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=17&addressdetails=1&lat=${r.lat}&lon=${r.lng}`);
+    const road = norm(j.address && (j.address.road||j.address.pedestrian||j.address.square||""));
+    if(!road) return false;
+    const nAddr = norm(r.address);
+    const roadCore = road.replace(/\b(calle|carrer|carretera|avinguda|avenida|passeig|paseo|placa|plaza|ronda|rambla|via|cami|camino|street|avenue|road|drive|boulevard|de|del|la|el|les|los|d|l)\b/g," ").replace(/\s+/g," ").trim();
+    return roadCore.length>2 && nAddr.includes(roadCore);
+  }catch(e){ return false; }
 }
 function classify(d){ return d<=150 ? "ok" : d<=1000 ? "warn" : "bad" }
 async function toggleAudit(){
   if(auditRunning){ auditRunning=false; $("auditBtn").textContent="🔍 Audit all addresses vs pins"; return; }
   auditRunning = true;
   const todo = ROWS.filter(r=>r.address && !AUD[r.id]);
-  if(!todo.length){ toast("Everything already audited. Clear with double-click on the button."); auditRunning=false; return; }
+  if(!todo.length){ toast("Everything already audited. Double-click the button to clear and re-run."); auditRunning=false; return; }
   let i = 0;
   for(const r of todo){
     if(!auditRunning) break;
     i++;
     $("auditBtn").textContent = `⏳ Auditing ${i}/${todo.length} — click to stop`;
     try{
-      const g = await geocode(r.address);
-      if(!g) AUD[r.id] = {status:"notfound"};
-      else if(r.lat==null) AUD[r.id] = {status:"notfound", glat:g.lat, glng:g.lng, d:0}; // suggestion for orphans
-      else {
-        const d = dist([r.lat,r.lng],[g.lat,g.lng])*1000; // meters
+      const g = await geocodeSmart(r.address);
+      if(g && r.lat==null){ AUD[r.id] = {status:"notfound", glat:g.lat, glng:g.lng, d:0}; }
+      else if(g){
+        const d = dist([r.lat,r.lng],[g.lat,g.lng])*1000;
         AUD[r.id] = {status:classify(d), d, glat:g.lat, glng:g.lng};
       }
+      else if(r.lat!=null && await reverseConfirms(r)){
+        AUD[r.id] = {status:"ok", d:null}; // street under the pin matches the address
+      }
+      else AUD[r.id] = {status:"notfound"};
     }catch(e){ AUD[r.id] = {status:"notfound"}; }
     saveAud(); updateStats();
     if(i%10===0) renderList();
-    await sleep(1100); // Nominatim fair-use: 1 req/sec
   }
   auditRunning = false;
   $("auditBtn").textContent = "🔍 Audit all addresses vs pins";
   renderList(); updateStats();
-  toast("Audit done. Worst offenders are now at the top.");
+  toast("Audit done. Worst offenders are at the top.");
 }
 $("auditBtn").addEventListener("dblclick",()=>{ AUD={}; saveAud(); renderList(); updateStats(); toast("Audit results cleared."); });
 
@@ -265,7 +325,7 @@ function select(id){
   $("editor").classList.add("open");
   $("editor").innerHTML = `
     <h2>${esc(r.name)}</h2>
-    <p class="eid">#${r.id} · ${r.n_reviews} review${r.n_reviews==1?"":"s"} · ${r.lat==null?"NO coordinates":(AUD[r.id]?(AUD[r.id].status==="notfound"?"address not found by geocoder":Math.round(AUD[r.id].d)+" m from its geocoded address"):"not audited yet")}</p>
+    <p class="eid">#${r.id} · ${r.n_reviews} review${r.n_reviews==1?"":"s"} · ${r.lat==null?"NO coordinates":(AUD[r.id]?(AUD[r.id].status==="notfound"?"address not found by geocoder":(AUD[r.id].d==null?"street under the pin matches the address":Math.round(AUD[r.id].d)+" m from its geocoded address")):"not audited yet")}</p>
     <div class="f"><label>Name</label><input id="eName" value="${esc(r.name)}"></div>
     <div class="f"><label>Address</label><input id="eAddr" value="${esc(r.address||"")}"></div>
     <div class="coords" id="eCoords">—</div>

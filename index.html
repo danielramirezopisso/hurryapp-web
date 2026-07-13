@@ -164,11 +164,15 @@ button{font-family:inherit;cursor:pointer}
 .mot.maybe{background:rgba(201,162,39,.13);color:#8A6D12}
 .mot.no{background:rgba(176,86,75,.11);color:#8E3F35}
 .d-attrs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.4rem 0 .8rem}
-.d-photos{display:flex;gap:.5rem;margin:.6rem 0 1rem}
+.d-photos{display:flex;gap:.5rem;margin:.6rem 0 1rem;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.d-photos::-webkit-scrollbar{display:none}
+.d-photos img{height:96px;border-radius:10px;cursor:pointer;flex-shrink:0;transition:transform .15s}
+.d-photos img:hover{transform:scale(1.04)}
 .d-photos .ph{
-  flex:1;aspect-ratio:4/3;border-radius:10px;border:1px dashed var(--line);
-  background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:1.05rem;opacity:.5;
+  flex:1;min-width:140px;aspect-ratio:4/3;border-radius:10px;border:1px dashed var(--line);
+  background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:.78rem;opacity:.5;text-align:center;padding:.5rem;
 }
+.lightbox-img{width:100%;border-radius:12px;display:block}
 .d-review{font-size:.86rem;background:var(--porcelana);border-left:2px solid var(--oro);border-radius:0 10px 10px 0;padding:.8rem .95rem;margin-bottom:1rem;line-height:1.55}
 .d-review em{font-family:'DM Serif Display',serif;font-style:italic;font-size:.95rem}
 .d-review .who{display:block;font-size:.64rem;opacity:.5;margin-top:.35rem;font-weight:600}
@@ -532,7 +536,7 @@ function openDetail(id){
         ${b.handi?'<span class="badge">♿ Accessible</span>':""}
         ${b.baby?'<span class="badge">🚼 Baby changer</span>':""}
       </div>
-      <div class="d-photos"><div class="ph">📷 ${b.photos} photo${b.photos===1?"":"s"} in the vault — gallery coming in phase 2</div></div>
+      <div class="d-photos" id="phStrip">${b.photos>0?'<div class="ph">📷 Loading '+b.photos+' photo'+(b.photos===1?"":"s")+'…</div>':'<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'}</div>
       <div class="d-review"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
       <div class="d-actions">
         <button class="btn btn-ink" onclick="openRate(${b.id})">Rate this throne</button>
@@ -540,6 +544,30 @@ function openDetail(id){
       </div>
     </div>`;
   showSheet();
+  if(b.photos>0) loadPhotos(b.id);
+}
+const photoURL = f => `${SUPABASE_URL}/storage/v1/object/public/photos/${encodeURI(f)}`;
+async function loadPhotos(id){
+  try{
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/throne_photos?bathroom_id=eq.${id}&select=file_name&order=created_at.desc&limit=20`,{
+      headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
+    });
+    const rows = await r.json();
+    const strip = $("phStrip");
+    if(!strip || selectedId!==id) return; // user already moved on
+    if(!Array.isArray(rows) || !rows.length){
+      strip.innerHTML = '<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; return;
+    }
+    strip.innerHTML = rows.map(x=>{
+      const u = photoURL(x.file_name);
+      return `<img src="${u}" loading="lazy" alt="Throne photo" onclick="openPhoto('${u.replace(/'/g,"%27")}')" onerror="this.remove()">`;
+    }).join("");
+    // if every img 404s (orphan DB rows), fall back to the empty message
+    setTimeout(()=>{ if(strip && !strip.querySelector("img") && selectedId===id) strip.innerHTML='<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; }, 4000);
+  }catch(e){}
+}
+function openPhoto(u){
+  openModal(`<img class="lightbox-img" src="${u}" alt="Throne photo, full size">`);
 }
 function fakeRoute(id){
   const b = BATHROOMS.find(x=>x.id===id);
