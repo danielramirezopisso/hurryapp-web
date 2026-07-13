@@ -240,6 +240,21 @@ button{font-family:inherit;cursor:pointer}
 }
 #panicFlash .pf-text i{font-style:italic;color:var(--oro)}
 .fab-stack{position:fixed;right:1rem;bottom:7.2rem;z-index:21;display:flex;flex-direction:column;gap:.45rem;align-items:flex-end}
+.fab-add{
+  width:54px;height:54px;border-radius:50%;border:none;background:var(--acento);color:#fff;
+  font-size:1.9rem;line-height:1;font-weight:400;box-shadow:0 10px 26px rgba(199,81,70,.45);
+  transition:transform .15s,background .2s;
+}
+.fab-add:hover{background:var(--acento-dark);transform:scale(1.06)}
+.fab-add:active{transform:scale(.94)}
+#addBanner{
+  position:fixed;top:7.4rem;left:50%;transform:translateX(-50%) translateY(-160%);z-index:24;
+  background:var(--ink);color:var(--porcelana);border-radius:999px;padding:.55rem .6rem .55rem 1.1rem;
+  display:flex;align-items:center;gap:.8rem;font-size:.8rem;font-weight:600;box-shadow:var(--shadow);
+  transition:transform .35s cubic-bezier(.3,.9,.3,1);max-width:92vw;
+}
+#addBanner.on{transform:translateX(-50%) translateY(0)}
+#addBanner button{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.35rem .8rem;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -271,8 +286,14 @@ button{font-family:inherit;cursor:pointer}
 <button class="panic" id="panicBtn" onclick="panic()">🚨 I need to go. <em>Now.</em></button>
 
 <div class="fab-stack">
+  <button class="fab-add" onclick="startAdd()" title="Add a throne" aria-label="Add a throne">＋</button>
   <button class="chip-btn" onclick="openList()" title="Show the list">☰ Thrones</button>
   <button class="chip-btn" onclick="resetMap()" title="Reset the map">⌖ Recenter</button>
+</div>
+
+<div id="addBanner">
+  <span>👆 Tap the map where the throne lives</span>
+  <button onclick="cancelAdd()">Cancel</button>
 </div>
 
 <div class="sheet" id="sheet">
@@ -414,7 +435,7 @@ function initMap(){
   L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
     .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
   drawMarkers();
-  map.on("click", e=>{ if(addMode){ addMode=false; openAddForm(e.latlng); } });
+  map.on("click", e=>{ if(addMode){ addMode=false; $("addBanner").classList.remove("on"); openAddForm(e.latlng); } });
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
   window.addEventListener("orientationchange", ()=>{ setTimeout(()=>map&&map.invalidateSize(),300) });
@@ -675,20 +696,25 @@ async function submitRate(){
 /* ---- add a throne ---- */
 let nbScore = 0;
 function startAdd(){
-  if(!loggedIn){ openAuth("email","Create an account first — anonymous thrones cannot be trusted."); return; }
+  if(!loggedIn){ openAuth("email","One tap of login, then your throne joins the map."); return; }
   addMode = true; closeModal(); closeSheet();
-  toast("👆 Tap the map where the throne lives.");
+  $("addBanner").classList.add("on");
+}
+function cancelAdd(){
+  addMode = false;
+  $("addBanner").classList.remove("on");
 }
 function openAddForm(latlng){
   openModal(`
-    <h2>Enthrone a new WC</h2>
-    <p class="m-sub">Pin dropped at ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}. You're doing God's work.</p>
-    <div class="m-row"><label>Name it — be creative, be honest</label><input id="nbName" placeholder="e.g. The Porcelain Palace"></div>
-    <div class="m-row"><label>Where exactly</label><input id="nbAddr" placeholder="e.g. Bar Manolo · back room, ask nicely"></div>
+    <h2>Enthrone this spot</h2>
+    <p class="m-sub">Two fields and you're a hero. That's the whole funnel.</p>
+    <div class="m-row"><label>Name it</label><input id="nbName" placeholder="e.g. The Porcelain Palace" onkeydown="if(event.key==='Enter')submitNew(${latlng.lat},${latlng.lng})"></div>
     <div class="m-row"><label>First impression, in rolls</label>
       <div class="seg">${[1,2,3,4,5].map(n=>`<button onclick="nbScore=${n};this.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on')">${n}</button>`).join("")}</div></div>
-    <button class="btn btn-ink" style="width:100%" onclick="submitNew(${latlng.lat},${latlng.lng})">Add to the map of civilization</button>
-    <p class="demo-note">This creates a real throne in the real database. Power. Responsibility.</p>`);
+    <div class="m-row"><label>Where exactly <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional — helps others find it)</span></label><input id="nbAddr" placeholder="e.g. Bar Manolo · ask nicely"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="submitNew(${latlng.lat},${latlng.lng})">🏛️ Add it to the map</button>
+    <p class="demo-note">Goes straight into the real database. Power. Responsibility.</p>`);
+  setTimeout(()=>$("nbName").focus(),100);
 }
 async function submitNew(lat,lng){
   const name = $("nbName").value.trim();
