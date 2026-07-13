@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HurryApp — Find a throne. Fast.</title>
+<meta name="description" content="The community map of usable bathrooms — rated in 🧻 rolls by people who were there in their darkest hour.">
+<meta name="theme-color" content="#F8F5EF">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="HurryApp">
+<meta property="og:title" content="HurryApp — Find a throne. Fast.">
+<meta property="og:description" content="The community map of usable bathrooms — rated in 🧻 rolls. Check the Moment of Truth™ before you commit.">
+<meta property="og:url" content="https://danielramirezopisso.github.io/hurryapp-web/">
+<meta property="og:image" content="https://danielramirezopisso.github.io/hurryapp-web/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
@@ -173,6 +184,18 @@ button{font-family:inherit;cursor:pointer}
   background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:.78rem;opacity:.5;text-align:center;padding:.5rem;
 }
 .lightbox-img{width:100%;border-radius:12px;display:block}
+.award{
+  display:flex;align-items:center;gap:.85rem;padding:.8rem .2rem;border-top:1px solid var(--line);
+  cursor:pointer;transition:background .15s;
+}
+.award:hover{background:rgba(38,36,31,.03)}
+.award .a-emoji{font-size:1.6rem;flex-shrink:0;width:2.2rem;text-align:center}
+.award .a-body{flex:1;min-width:0}
+.award .a-title{font-size:.66rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acento)}
+.award .a-winner{font-family:'DM Serif Display',serif;font-size:1.05rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.award .a-sub{font-size:.68rem;opacity:.55}
+.award .a-stat{font-weight:800;font-size:.92rem;flex-shrink:0;text-align:right}
+.award .a-stat small{display:block;font-weight:600;font-size:.58rem;opacity:.5;letter-spacing:.06em;text-transform:uppercase}
 .ph-add{
   height:96px;min-width:72px;border:1.5px dashed var(--line);border-radius:10px;background:var(--porcelana);
   font-size:1.3rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.1rem;
@@ -204,6 +227,7 @@ button{font-family:inherit;cursor:pointer}
 .btn-ink:hover{background:#000}
 .btn-ghost{background:transparent;border:1.5px solid var(--ink);color:var(--ink)}
 .btn-ghost:hover{background:var(--ink);color:var(--porcelana)}
+.btn-share{flex:0 0 auto;padding:.8rem 1.05rem;font-size:1rem;line-height:1}
 .back-list{background:none;border:none;font-size:.72rem;font-weight:700;opacity:.55;padding:.5rem 0}
 .back-list:hover{opacity:1}
 
@@ -304,6 +328,7 @@ button{font-family:inherit;cursor:pointer}
     <span class="slogan">Make your shitting great again</span>
   </div>
   <div class="top-actions">
+    <button class="chip-btn icon" onclick="openHall()" aria-label="Hall of Thrones" title="Hall of Thrones">🏆</button>
     <button class="chip-btn icon" onclick="openSearch()" aria-label="Search a city" title="Search a city">🔍</button>
     <button class="chip-btn icon" onclick="toggleColorblind()" aria-label="Colorblind mode" title="Colorblind mode" id="cbBtn">👁️</button>
     <button class="chip-btn" onclick="openAbout()">About</button>
@@ -523,6 +548,7 @@ function drawMarkers(){
 /* ================= LIST ================= */
 function openList(){
   exitAddMode();
+  history.replaceState(null,"",location.pathname);
   selectedId = null; drawMarkers();
   const all = BATHROOMS.filter(passesFilter)
     .map(b=>({...b,d:dist(YOU,[b.lat,b.lng])})).sort((a,b)=>a.d-b.d);
@@ -555,6 +581,7 @@ function openList(){
 /* ================= DETAIL ================= */
 function openDetail(id){
   exitAddMode();
+  history.replaceState(null,"",""+location.pathname+"?throne="+id);
   selectedId = id; drawMarkers();
   const b = BATHROOMS.find(x=>x.id===id);
   const d = dist(YOU,[b.lat,b.lng]);
@@ -582,6 +609,7 @@ function openDetail(id){
       <div class="d-actions">
         <button class="btn btn-ink" onclick="openRate(${b.id})">Rate this throne</button>
         <button class="btn btn-ghost" onclick="fakeRoute(${b.id})">Take me there</button>
+        <button class="btn btn-ghost btn-share" onclick="shareThrone(${b.id})" aria-label="Share this throne" title="Share">↗</button>
       </div>
     </div>`;
   showSheet();
@@ -632,6 +660,23 @@ function lbStep(dir){
   if(img) img.src = LB.list[n];
   if(c) c.textContent = `${n+1} / ${LB.list.length}`;
 }
+function throneURL(id){ return location.origin + location.pathname + "?throne=" + id; }
+async function shareThrone(id){
+  const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
+  const url = throneURL(id);
+  const verdict = b.paper==="yes" ? "Battle-tested. 💩" : b.paper==="no" ? "Locals say NEVER. 🙅" : "";
+  const text = `${b.name} — ${b.score!==null ? b.score.toFixed(1)+" 🧻 rolls" : "unrated"} on HurryApp. ${verdict}`.trim();
+  if(navigator.share){
+    try{ await navigator.share({title:"HurryApp", text, url}); return; }
+    catch(e){ if(e && e.name==="AbortError") return; }
+  }
+  try{
+    await navigator.clipboard.writeText(text+" "+url);
+    toast("🔗 Link copied. Go spread the word.");
+  }catch(e){
+    prompt("Copy your throne link:", url);
+  }
+}
 function fakeRoute(id){
   const b = BATHROOMS.find(x=>x.id===id);
   if(routeLine) map.removeLayer(routeLine);
@@ -647,7 +692,7 @@ function resetMap(){
   toast("Fresh start. The city is yours.");
 }
 function showSheet(){$("sheet").classList.add("open");$("panicBtn").classList.add("sheet-open")}
-function closeSheet(){$("sheet").classList.remove("open");$("panicBtn").classList.remove("sheet-open");selectedId=null;drawMarkers();if(routeLine){map.removeLayer(routeLine);routeLine=null}}
+function closeSheet(){$("sheet").classList.remove("open");$("panicBtn").classList.remove("sheet-open");selectedId=null;history.replaceState(null,"",location.pathname);drawMarkers();if(routeLine){map.removeLayer(routeLine);routeLine=null}}
 
 /* ================= PANIC ================= */
 function panic(){
@@ -1000,6 +1045,56 @@ function toggleLogin(){
   else openAuth("email");
 }
 
+/* ---- Hall of Thrones: live awards from the real data ---- */
+function best(list, fn, dir=1){ // dir 1 = max, -1 = min
+  const c = list.filter(b=>fn(b)!=null && !isNaN(fn(b)));
+  if(!c.length) return null;
+  return c.sort((a,b)=>(fn(b)-fn(a))*dir || b.n-a.n)[0];
+}
+function awardRow(emoji, title, b, stat, statLabel){
+  if(!b) return "";
+  return `<div class="award" onclick="closeModal();openDetail(${b.id})">
+    <span class="a-emoji">${emoji}</span>
+    <div class="a-body">
+      <div class="a-title">${title}</div>
+      <div class="a-winner">${esc(b.name)}</div>
+      <div class="a-sub">${esc(b.addr)}</div>
+    </div>
+    <span class="a-stat">${stat}<small>${statLabel}</small></span>
+  </div>`;
+}
+function openHall(){
+  const R = BATHROOMS.filter(b=>b.score!==null);
+  if(!R.length){ toast("The Hall awaits its first legends."); return; }
+  // median for the Pilgrimage award
+  const lats=R.map(b=>b.lat).sort((a,b)=>a-b), lngs=R.map(b=>b.lng).sort((a,b)=>a-b);
+  const med=[lats[Math.floor(lats.length/2)], lngs[Math.floor(lngs.length/2)]];
+  const gold   = best(R, b=>b.score, 1);
+  const danger = best(R, b=>b.score, -1);
+  const soft   = best(R, b=>b.soft, 1);
+  const sand   = best(R, b=>b.soft, -1);
+  const photo  = best(BATHROOMS, b=>b.photos||null, 1);
+  const tested = best(R.filter(b=>b.paper==="yes"), b=>b.n, 1);
+  const nose   = best(R, b=>b.smell, -1);
+  const rose   = best(R, b=>b.smell, 1);
+  const clean  = best(R, b=>b.clean, 1);
+  const far    = best(R, b=>dist(med,[b.lat,b.lng]), 1);
+  openModal(`
+    <h2>🏆 Hall of Thrones</h2>
+    <p class="m-sub">The annual awards nobody asked for. Computed live from ${BATHROOMS.length} real thrones — tap any winner to visit.</p>
+    ${awardRow("👑","The Golden Throne", gold, gold?gold.score.toFixed(1):"", "rolls")}
+    ${awardRow("☠️","The Danger Zone", danger, danger?danger.score.toFixed(1):"", "rolls")}
+    ${awardRow("💩","Most Battle-Tested", tested, tested?tested.n:"", "verdicts")}
+    ${awardRow("☁️","Softest Paper in the Land", soft, soft?soft.soft.toFixed(1):"", "softness")}
+    ${awardRow("🪵","The Sandpaper Award", sand, sand?sand.soft.toFixed(1):"", "softness")}
+    ${awardRow("🧼","The Operating Room", clean, clean?clean.clean.toFixed(1):"", "cleanliness")}
+    ${awardRow("🌹","Smells Like Victory", rose, rose?rose.smell.toFixed(1):"", "smell")}
+    ${awardRow("☣️","The Nose Destroyer", nose, nose?nose.smell.toFixed(1):"", "smell")}
+    ${awardRow("📸","Most Photographed", photo, photo?photo.photos:"", "photos")}
+    ${awardRow("🗺️","The Pilgrimage", far, far?(dist(med,[far.lat,far.lng])>=1000?Math.round(dist(med,[far.lat,far.lng])/100)/10+"k":Math.round(dist(med,[far.lat,far.lng])))+" km":"", "from the pack")}
+    <p class="demo-note">Winners update as the community judges. Democracy at its finest.</p>`);
+}
+
 /* ---- about ---- */
 function openAbout(){
   openModal(`
@@ -1048,8 +1143,15 @@ function openAbout(){
     initMap();
     map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
     if(navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{YOU=[p.coords.latitude,p.coords.longitude]});
-    setTimeout(openList, 500);
-    toast(`🧻 ${BATHROOMS.length} real thrones loaded. This is not a drill.`);
+    const deepId = parseInt(new URLSearchParams(location.search).get("throne"),10);
+    const deepB = BATHROOMS.find(b=>b.id===deepId);
+    if(deepB){
+      setTimeout(()=>openDetail(deepB.id), 400);
+      toast(`🧻 Someone sent you a throne. Judge it well.`);
+    } else {
+      setTimeout(openList, 500);
+      toast(`🧻 ${BATHROOMS.length} real thrones loaded. This is not a drill.`);
+    }
   }catch(e){
     document.body.innerHTML = '<div style="font-family:DM Sans,sans-serif;padding:3rem;max-width:62ch;margin:auto;color:#26241F"><h1 style="font-family:DM Serif Display,serif;font-size:2rem">Almost there.</h1><p style="margin-top:1rem;line-height:1.7">1. Open this file in a text editor.<br>2. Paste your <b>SUPABASE_URL</b> and <b>SUPABASE_ANON_KEY</b> at the top of the &lt;script&gt; (Supabase → Settings → API).<br>3. Make sure you ran the <code>map_thrones</code> SQL.<br><br><span style="opacity:.6">Details: '+e.message+'</span></p></div>';
   }
