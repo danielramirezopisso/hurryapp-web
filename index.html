@@ -35,7 +35,7 @@ button{font-family:inherit;cursor:pointer}
 :focus-visible{outline:2.5px solid var(--acento);outline-offset:2px}
 
 /* ================= MAP ================= */
-#map{position:fixed;inset:0;z-index:1}
+#map{position:fixed;inset:0;z-index:1;height:100svh;height:100dvh}
 .leaflet-container{background:#EDEAE2;font-family:inherit}
 
 /* ================= TOP BAR ================= */
@@ -67,11 +67,11 @@ button{font-family:inherit;cursor:pointer}
 .filters{
   position:fixed;top:4.1rem;left:0;right:0;z-index:19;
   display:flex;gap:.4rem;padding:.35rem 1rem;overflow-x:auto;
-  scrollbar-width:none;pointer-events:none;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;touch-action:pan-x;
 }
 .filters::-webkit-scrollbar{display:none}
 .filters .f{
-  pointer-events:auto;flex-shrink:0;background:var(--card);border:1px solid var(--line);
+  flex-shrink:0;background:var(--card);border:1px solid var(--line);
   border-radius:999px;padding:.4rem .85rem;font-size:.72rem;font-weight:600;
   box-shadow:0 3px 10px rgba(38,36,31,.08);transition:all .15s;color:var(--ink);
 }
@@ -85,6 +85,12 @@ button{font-family:inherit;cursor:pointer}
   padding:.95rem 1.8rem;font-size:.92rem;font-weight:700;letter-spacing:.01em;
   box-shadow:0 10px 28px rgba(199,81,70,.4);white-space:nowrap;
   transition:background .2s,transform .15s;animation:breathe 3.2s ease-in-out infinite;
+}
+@media(max-width:560px){
+  .topbar{padding:.65rem .65rem}
+  .chip-btn{padding:.42rem .7rem;font-size:.7rem}
+  .brand{padding:.45rem .9rem}
+  .filters{top:3.6rem}
 }
 @keyframes breathe{0%,100%{box-shadow:0 10px 28px rgba(199,81,70,.35)}50%{box-shadow:0 10px 34px rgba(199,81,70,.6)}}
 .panic:hover{background:var(--acento-dark)}
@@ -360,7 +366,8 @@ async function refetchThrone(id){
 }
 
 /* ================= STATE ================= */
-let map, markers = {}, activeFilter = "all", selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
+let map, markers = {}, selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
+let FLT = {score:null, paper:false, handi:false, baby:false};
 
 /* ================= HELPERS ================= */
 const $ = id => document.getElementById(id);
@@ -408,20 +415,31 @@ function initMap(){
     .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
   drawMarkers();
   map.on("click", e=>{ if(addMode){ addMode=false; openAddForm(e.latlng); } });
+  // mobile address-bar dance: keep Leaflet sized to the real viewport
+  window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
+  window.addEventListener("orientationchange", ()=>{ setTimeout(()=>map&&map.invalidateSize(),300) });
 }
 const markerIcon = (b,sel=false) => L.divIcon({
   html:`<div class="score-pin ${bucket(b.score)} ${sel?"selected":""}"><span>${b.score===null?"?":b.score.toFixed(1)}</span></div>`,
   iconSize:[40,40],iconAnchor:[20,40],
 });
 function passesFilter(b){
-  switch(activeFilter){
-    case "good": return b.score!==null && b.score>=4;
-    case "paper": return b.paper==="yes";
-    case "handi": return b.handi;
-    case "baby": return b.baby;
-    case "risky": return b.score!==null && b.score<2.5;
-    default: return true;
-  }
+  if(FLT.score==="good" && !(b.score!==null && b.score>=4)) return false;
+  if(FLT.score==="risky" && !(b.score!==null && b.score<2.5)) return false;
+  if(FLT.paper && b.paper!=="yes") return false;
+  if(FLT.handi && !b.handi) return false;
+  if(FLT.baby && !b.baby) return false;
+  return true;
+}
+function syncChips(){
+  const none = !FLT.score && !FLT.paper && !FLT.handi && !FLT.baby;
+  document.querySelectorAll(".filters .f").forEach(x=>{
+    const f = x.dataset.f;
+    x.classList.toggle("on",
+      f==="all" ? none :
+      f==="good" ? FLT.score==="good" :
+      f==="risky" ? FLT.score==="risky" : !!FLT[f]);
+  });
 }
 function drawMarkers(){
   Object.values(markers).forEach(m=>map.removeLayer(m));
@@ -505,8 +523,8 @@ function fakeRoute(id){
   toast(`🏃 ${distLabel(dist(YOU,[b.lat,b.lng]))}. Walk with purpose.`);
 }
 function resetMap(){
-  activeFilter = "all";
-  document.querySelectorAll(".filters .f").forEach(x=>x.classList.toggle("on", x.dataset.f==="all"));
+  FLT = {score:null,paper:false,handi:false,baby:false};
+  syncChips();
   closeSheet();
   if(BATHROOMS.length) map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
   toast("Fresh start. The city is yours.");
@@ -540,14 +558,21 @@ function panic(){
 
 /* ================= FILTERS ================= */
 $("filters").addEventListener("click",e=>{
-  const b = e.target.closest(".f"); if(!b) return;
-  document.querySelectorAll(".filters .f").forEach(x=>x.classList.remove("on"));
-  b.classList.add("on");
-  activeFilter = b.dataset.f;
-  drawMarkers();
+  const btn = e.target.closest(".f"); if(!btn) return;
+  const f = btn.dataset.f;
+  if(f==="all"){ FLT = {score:null,paper:false,handi:false,baby:false}; }
+  else if(f==="good"||f==="risky"){ FLT.score = FLT.score===f ? null : f; }
+  else { FLT[f] = !FLT[f]; }
+  syncChips(); drawMarkers();
   if($("sheet").classList.contains("open") && !selectedId) openList();
-  const quips = {good:"Only the finest porcelain for you.",paper:"Trust, but verify.",risky:"Godspeed, you absolute maniac.",handi:"Accessible thrones only.",baby:"For the tiny emperors.",all:"Showing everything. Even the Metro. Brave."};
-  toast(quips[activeFilter]);
+  const nActive = [FLT.score,FLT.paper,FLT.handi,FLT.baby].filter(Boolean).length;
+  const quips = {good:"Only the finest porcelain.",risky:"Godspeed, you absolute maniac.",paper:"Trust, but verify.",handi:"Accessible thrones.",baby:"For the tiny emperors."};
+  if(!nActive) toast("Everything. Even the horrors. Brave.");
+  else {
+    const turnedOn = btn.classList.contains("on");
+    const base = turnedOn ? (quips[f]||"Filter on.") : "Filter off.";
+    toast(nActive>1 ? base+" ("+nActive+" filters combined)" : base);
+  }
 });
 
 /* ================= SEARCH (restored from the original) ================= */
@@ -678,23 +703,77 @@ async function submitNew(lat,lng){
   toast(`🏛️ "${esc(name)}" is on the map. Forever. Humanity thanks you.`);
 }
 
-/* ---- auth: one-click anonymous login (no email, no password, no commitment) ---- */
+/* ---- auth: accounts first (log in / create), anonymous as plan B ---- */
 function openAuth(_step, reason){
   openModal(`
     <h2>Enter HurryApp</h2>
-    <p class="m-sub">${esc(reason||"No email. No password. No commitment.")}</p>
-    <button class="btn btn-ink" style="width:100%" onclick="anonLogin()">🧻 Just let me in</button>
-    <p class="demo-note">An anonymous identity is created on this device. Your judgements are forever; your name is nobody's business.</p>`);
+    <p class="m-sub">${esc(reason||"Your account, your thrones, your legacy.")}</p>
+    <div class="m-row"><label>Email</label><input id="fEmail" placeholder="you@holdingiton.com"></div>
+    <div class="m-row"><label>Password</label><input id="fPass" type="password" placeholder="min. 6 characters" onkeydown="if(event.key==='Enter')founderLogin()"></div>
+    <div class="m-row"><label>Username <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional — new accounts only)</span></label><input id="fUser" maxlength="24" placeholder="e.g. throne_hunter"></div>
+    <div style="display:flex;gap:.55rem">
+      <button class="btn btn-ink" style="flex:1" onclick="founderLogin()">Log in</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="createAccount()">Create account</button>
+    </div>
+    <button class="back-list" style="width:100%;text-align:center;margin-top:.55rem" onclick="recoverPass()">I forgot my password (get a reset email)</button>
+    <div style="display:flex;align-items:center;gap:.7rem;margin:1.1rem 0 .8rem;opacity:.5">
+      <div style="flex:1;height:1px;background:var(--line)"></div>
+      <span style="font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700">In a real hurry? (obviously)</span>
+      <div style="flex:1;height:1px;background:var(--line)"></div>
+    </div>
+    <button class="btn btn-ghost" style="width:100%" onclick="anonLogin()">🧻 Just let me in — no account</button>
+    <p class="demo-note">Anonymous mode lives in this browser only. Accounts travel with you.</p>`);
+  setTimeout(()=>$("fEmail").focus(),100);
+}
+async function founderLogin(){
+  const email=$("fEmail").value.trim(), pass=$("fPass").value;
+  if(!email.includes("@")||!pass){toast("Email and password, please.");return}
+  const {error} = await supa.auth.signInWithPassword({email, password:pass});
+  if(error){toast("😬 "+error.message+' — new here? Hit "Create account". Old founder? Use the reset link.');return}
+  closeModal(); toast("Welcome back. The thrones remember you. 👑");
+}
+async function createAccount(){
+  const email=$("fEmail").value.trim(), pass=$("fPass").value;
+  const uname=$("fUser").value.trim()||email.split("@")[0];
+  if(!email.includes("@")){toast("That's not an email. Nice try.");return}
+  if(pass.length<6){toast("Six characters minimum. You survived worse bathrooms.");return}
+  const {data,error} = await supa.auth.signUp({email, password:pass, options:{data:{username:uname}}});
+  if(error){toast("😬 "+error.message);return}
+  if(data.session){ closeModal(); toast(`Account created. Welcome, @${esc(uname)}. Judge responsibly. 🧻`); }
+  else { closeModal(); toast("📬 Almost in — check your inbox to confirm your email."); }
 }
 async function anonLogin(){
   const {error} = await supa.auth.signInAnonymously();
   if(error){toast("😬 "+error.message+" — is Anonymous sign-in enabled in Supabase?");return}
-  closeModal(); toast("You're in. Your judgement is now legally binding.");
+  closeModal(); toast("You're in, mysterious stranger. Your judgement still counts.");
+}
+async function recoverPass(){
+  const email=$("fEmail").value.trim();
+  if(!email.includes("@")){toast("Type your email above first.");return}
+  const {error} = await supa.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  if(error){toast("😬 "+error.message);return}
+  closeModal(); toast("📬 If that email exists here, a reset link is on its way.");
+}
+function openSetPassword(){
+  openModal(`
+    <h2>Set your new password</h2>
+    <p class="m-sub">Welcome back. Choose wisely — or at least memorably.</p>
+    <div class="m-row"><label>New password</label><input id="npPass" type="password" placeholder="min. 6 characters" onkeydown="if(event.key==='Enter')saveNewPassword()"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="saveNewPassword()">Save & enter</button>`);
+  setTimeout(()=>$("npPass").focus(),100);
+}
+async function saveNewPassword(){
+  const pass=$("npPass").value;
+  if(pass.length<6){toast("Six characters minimum. You survived worse bathrooms.");return}
+  const {error} = await supa.auth.updateUser({password:pass});
+  if(error){toast("😬 "+error.message);return}
+  closeModal(); toast("Password set. Welcome back. 👑");
 }
 function setAuthUI(session){
   loggedIn = !!session;
-  const em = session && session.user && session.user.email;
-  $("loginBtn").textContent = loggedIn ? (em ? "@"+em.split("@")[0] : "@anon")+" 🧻" : "Log in";
+  const u = session && session.user;
+  const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
+  $("loginBtn").textContent = loggedIn ? "@"+(name||"anon")+" 🧻" : "Log in";
 }
 function toggleLogin(){
   if(loggedIn){ supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
@@ -727,7 +806,7 @@ function openAbout(){
     if(SUPABASE_URL.indexOf("PASTE")===0) throw new Error("missing config");
     supa = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     supa.auth.getSession().then(({data})=>setAuthUI(data.session));
-    supa.auth.onAuthStateChange((_e,session)=>setAuthUI(session));
+    supa.auth.onAuthStateChange((event,session)=>{setAuthUI(session);if(event==="PASSWORD_RECOVERY")openSetPassword();});
     await loadThrones();
     if(!BATHROOMS.length) throw new Error("view returned 0 rows — did you run the map_thrones SQL?");
     YOU = [
