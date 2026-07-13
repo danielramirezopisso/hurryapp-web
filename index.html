@@ -243,6 +243,10 @@ button{font-family:inherit;cursor:pointer}
   border-radius:20px 20px 0 0;padding:1.6rem 1.4rem 1.8rem;animation:up .3s cubic-bezier(.3,.9,.3,1);
 }
 @media(min-width:560px){.modal{border-radius:18px}}
+.modal{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.modal::-webkit-scrollbar{width:8px}
+.modal::-webkit-scrollbar-thumb{background:rgba(38,36,31,.18);border-radius:4px}
+.modal::-webkit-scrollbar-track{background:transparent;margin:14px 0}
 @keyframes up{from{transform:translateY(36px);opacity:0}to{transform:none;opacity:1}}
 .modal h2{font-size:1.5rem;margin-bottom:.15rem}
 .modal .m-sub{font-size:.8rem;opacity:.6;margin-bottom:1.2rem}
@@ -461,6 +465,14 @@ async function refetchThrone(id){
 /* ================= STATE ================= */
 let map, markers = {}, selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
 let FLT = {score:null, paper:false, handi:false, baby:false};
+let MYREV = {}; // my reviews, keyed by bathroom_id
+async function loadMyReviews(){
+  MYREV = {};
+  if(!loggedIn || !supa) { return; }
+  const {data,error} = await supa.rpc("my_reviews");
+  if(!error && Array.isArray(data)) data.forEach(r=>{ MYREV[r.bathroom_id]=r; });
+  if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId);
+}
 
 /* ================= HELPERS ================= */
 const $ = id => document.getElementById(id);
@@ -596,6 +608,7 @@ function openDetail(id){
       <h2>${esc(b.name)}</h2>
       <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it${b.addedBy?` · discovered by @${esc(b.addedBy)}`:""}</p>
       ${rolls(b.score,b.n)}
+      ${MYREV[b.id]?`<div class="mot yes" style="margin:.6rem 0 0">🫵 Your verdict: ${MYREV[b.id].score} roll${MYREV[b.id].score===1?"":"s"}${MYREV[b.id].review_text?` — “${esc(MYREV[b.id].review_text)}”`:""}</div>`:""}
       <div class="mot ${mot.cls}">${mot.txt}</div>
       <div class="d-attrs">
         ${b.clean!==null?`<span class="badge">🧼 Cleanliness ${b.clean.toFixed(1)}</span>`:""}
@@ -607,7 +620,7 @@ function openDetail(id){
       <div class="d-photos" id="phStrip">${b.photos>0?'<div class="ph">📷 Loading '+b.photos+' photo'+(b.photos===1?"":"s")+'…</div>':'<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'}<button class="ph-add" onclick="pickPhotos(${b.id})" title="Add a photo">＋<span>photo</span></button></div>
       <div class="d-review"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
       <div class="d-actions">
-        <button class="btn btn-ink" onclick="openRate(${b.id})">Rate this throne</button>
+        <button class="btn btn-ink" onclick="openRate(${b.id})">${MYREV[b.id]?"✏️ Edit your review":"Rate this throne"}</button>
         <button class="btn btn-ghost" onclick="fakeRoute(${b.id})">Take me there</button>
         <button class="btn btn-ghost btn-share" onclick="shareThrone(${b.id})" aria-label="Share this throne" title="Share">↗</button>
       </div>
@@ -786,10 +799,11 @@ let pick = {};
 function openRate(id){
   if(!loggedIn){ openAuth("email","You need an account to judge other people's toilets. It's only fair."); return; }
   const b = BATHROOMS.find(x=>x.id===id);
+  const mine = MYREV[id];
   pick = {id,score:0,clean:0,smell:0,soft:0,paper:null,handi:null,baby:null};
   openModal(`
-    <h2>Rate ${esc(b.name)}</h2>
-    <p class="m-sub">Your civic duty. Future desperate strangers thank you.</p>
+    <h2>${mine?"Edit your review of":"Rate"} ${esc(b.name)}</h2>
+    <p class="m-sub">${mine?"Opinions evolve. Bowels remember.":"Your civic duty. Future desperate strangers thank you."}</p>
     <div class="m-row"><label>Overall, in rolls</label>
       <span class="rolls pickable" id="pickRolls">${[1,2,3,4,5].map(i=>`<span onclick="setScore(${i})" style="display:inline-block">${rollSVG("rgba(38,36,31,.13)")}</span>`).join("")}</span>
     </div>
@@ -812,8 +826,19 @@ function openRate(id){
       </div></div>
     <div class="m-row"><label>One-line review — make it count</label>
       <input id="revText" maxlength="120" placeholder="e.g. 'The hand dryer could launch a kite.'"></div>
-    <button class="btn btn-ink" style="width:100%" onclick="submitRate()">Submit judgement</button>
-    <p class="demo-note">This goes straight into the real database. Choose your words wisely.</p>`);
+    <button class="btn btn-ink" style="width:100%" onclick="submitRate()">${mine?"Update judgement":"Submit judgement"}</button>
+    <p class="demo-note">One verdict per person per throne — editing replaces your previous one.</p>`);
+  if(mine){
+    if(mine.score) setScore(mine.score);
+    const pre = (segId,val)=>{ if(val==null) return; const btns=document.getElementById(segId).querySelectorAll("button"); if(btns[val-1]) btns[val-1].classList.add("on"); };
+    if(mine.cleanliness){ pick.clean=mine.cleanliness; pre("segClean",mine.cleanliness); }
+    if(mine.smell){ pick.smell=mine.smell; pre("segSmell",mine.smell); }
+    if(mine.paper_softness){ pick.soft=mine.paper_softness; pre("segSoft",mine.paper_softness); }
+    if(mine.moment_of_truth){ pick.paper={1:"yes",2:"maybe",3:"no"}[mine.moment_of_truth]||null; pre("segPaper",mine.moment_of_truth); }
+    if(mine.handicapped){ pick.handi=true; $("tHandi").classList.add("on"); }
+    if(mine.babies){ pick.baby=true; $("tBaby").classList.add("on"); }
+    if(mine.review_text) $("revText").value = mine.review_text;
+  }
 }
 function setScore(n){
   pick.score=n;
@@ -825,18 +850,23 @@ function toggleAttr(k,btn){pick[k]=!pick[k];btn.classList.toggle("on")}
 async function submitRate(){
   if(!pick.score){toast("Zero rolls is not a rating. It's a cry for help. Pick 1–5.");return}
   const motNum = pick.paper ? ({yes:1,maybe:2,no:3})[pick.paper] : null;
-  toast("Filing your judgement…");
+  const txt = $("revText").value.trim()||null;
+  const editing = !!MYREV[pick.id];
+  toast(editing?"Updating your judgement…":"Filing your judgement…");
   const {error} = await supa.rpc("rate_throne",{
     p_bathroom_id:pick.id, p_score:pick.score,
     p_clean:pick.clean||null, p_smell:pick.smell||null, p_soft:pick.soft||null,
     p_mot:motNum, p_handi:pick.handi||null, p_babies:pick.baby||null,
-    p_text:($("revText").value.trim()||null)
+    p_text:txt
   });
   if(error){toast("😬 "+error.message);return}
+  MYREV[pick.id] = {bathroom_id:pick.id, score:pick.score, cleanliness:pick.clean||null,
+    smell:pick.smell||null, paper_softness:pick.soft||null, moment_of_truth:motNum,
+    handicapped:pick.handi||null, babies:pick.baby||null, review_text:txt};
   closeModal();
   await refetchThrone(pick.id);
   drawMarkers(); openDetail(pick.id);
-  toast("Judgement recorded. Forever. In the real database. 🧻");
+  toast(editing?"Judgement revised. History rewritten. 🧻":"Judgement recorded. Forever. In the real database. 🧻");
 }
 
 /* ---- add a throne ---- */
@@ -1033,7 +1063,10 @@ async function saveNewPassword(){
   closeModal(); toast("Password set. Welcome back. 👑");
 }
 function setAuthUI(session){
+  const was = loggedIn;
   loggedIn = !!session;
+  if(loggedIn && !was) loadMyReviews();
+  if(!loggedIn && was){ MYREV = {}; if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
   const u = session && session.user;
   const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
   $("loginBtn").textContent = loggedIn ? "@"+(name||"anon")+" 🧻" : "Log in";
