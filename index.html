@@ -233,6 +233,7 @@ button{font-family:inherit;cursor:pointer}
   font-size:clamp(1.5rem,5.6vw,2.6rem);text-align:center;line-height:1.2;padding:1.2rem;max-width:26ch;
 }
 #panicFlash .pf-text i{font-style:italic;color:var(--oro)}
+.fab-stack{position:fixed;right:1rem;bottom:7.2rem;z-index:21;display:flex;flex-direction:column;gap:.45rem;align-items:flex-end}
 </style>
 </head>
 <body>
@@ -262,6 +263,11 @@ button{font-family:inherit;cursor:pointer}
 </div>
 
 <button class="panic" id="panicBtn" onclick="panic()">🚨 I need to go. <em>Now.</em></button>
+
+<div class="fab-stack">
+  <button class="chip-btn" onclick="openList()" title="Show the list">☰ Thrones</button>
+  <button class="chip-btn" onclick="resetMap()" title="Reset the map">⌖ Recenter</button>
+</div>
 
 <div class="sheet" id="sheet">
   <div class="sheet-grab"></div>
@@ -327,7 +333,8 @@ function mapRow(x){
     handi:!!x.handicapped, baby:!!x.babies,
     paper:x.moment_of_truth==null?"unknown":(MOT_MAP[x.moment_of_truth]||"unknown"),
     photos:+x.n_photos||0,
-    latest:x.latest_review||null
+    latest:x.latest_review||null,
+    addedBy:x.added_by||null
   };
   if(b.latest){ b.review=b.latest; b.who="@a_real_survivor"; }
   else { b.review=quipFor(b); b.who=HANDLES[seeded(b.id+7,HANDLES.length)]; }
@@ -471,7 +478,7 @@ function openDetail(id){
     </div>
     <div class="detail">
       <h2>${esc(b.name)}</h2>
-      <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it</p>
+      <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it${b.addedBy?` · discovered by @${esc(b.addedBy)}`:""}</p>
       ${rolls(b.score,b.n)}
       <div class="mot ${mot.cls}">${mot.txt}</div>
       <div class="d-attrs">
@@ -496,6 +503,13 @@ function fakeRoute(id){
   routeLine = L.polyline([YOU,[b.lat,b.lng]],{color:"#C75146",weight:3.5,dashArray:"7 9",opacity:.8}).addTo(map);
   map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
   toast(`🏃 ${distLabel(dist(YOU,[b.lat,b.lng]))}. Walk with purpose.`);
+}
+function resetMap(){
+  activeFilter = "all";
+  document.querySelectorAll(".filters .f").forEach(x=>x.classList.toggle("on", x.dataset.f==="all"));
+  closeSheet();
+  if(BATHROOMS.length) map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
+  toast("Fresh start. The city is yours.");
 }
 function showSheet(){$("sheet").classList.add("open");$("panicBtn").classList.add("sheet-open")}
 function closeSheet(){$("sheet").classList.remove("open");$("panicBtn").classList.remove("sheet-open");selectedId=null;drawMarkers();if(routeLine){map.removeLayer(routeLine);routeLine=null}}
@@ -664,44 +678,23 @@ async function submitNew(lat,lng){
   toast(`🏛️ "${esc(name)}" is on the map. Forever. Humanity thanks you.`);
 }
 
-/* ---- auth: real Supabase email-code login ---- */
-let authEmail = "";
-function openAuth(step="email", reason){
-  if(step==="email"){
-    openModal(`
-      <h2>Log in / Sign up</h2>
-      <p class="m-sub">${esc(reason||"One email. One code. Zero passwords to forget.")}</p>
-      <div class="m-row"><label>Email</label><input id="authEmail" placeholder="you@holdingiton.com" onkeydown="if(event.key==='Enter')sendCode()"></div>
-      <button class="btn btn-ink" style="width:100%" onclick="sendCode()">Send me a code</button>
-      <p class="demo-note">First time here? Same flow — the account creates itself.</p>`);
-    setTimeout(()=>$("authEmail").focus(),100);
-  } else {
-    openModal(`
-      <h2>Check your inbox</h2>
-      <p class="m-sub">We sent a 6-digit code to <b>${esc(authEmail)}</b>. The spam folder counts as an inbox.</p>
-      <div class="m-row"><label>Code</label><input id="authCode" inputmode="numeric" maxlength="6" placeholder="123456" onkeydown="if(event.key==='Enter')verifyCode()"></div>
-      <button class="btn btn-ink" style="width:100%" onclick="verifyCode()">Verify & enter</button>
-      <p class="demo-note">Nothing after ~1 min? Close this and try again.</p>`);
-    setTimeout(()=>$("authCode").focus(),100);
-  }
+/* ---- auth: one-click anonymous login (no email, no password, no commitment) ---- */
+function openAuth(_step, reason){
+  openModal(`
+    <h2>Enter HurryApp</h2>
+    <p class="m-sub">${esc(reason||"No email. No password. No commitment.")}</p>
+    <button class="btn btn-ink" style="width:100%" onclick="anonLogin()">🧻 Just let me in</button>
+    <p class="demo-note">An anonymous identity is created on this device. Your judgements are forever; your name is nobody's business.</p>`);
 }
-async function sendCode(){
-  authEmail = $("authEmail").value.trim();
-  if(!authEmail.includes("@")){toast("That's not an email. Nice try.");return}
-  toast("Sending code…");
-  const {error} = await supa.auth.signInWithOtp({email:authEmail});
-  if(error){toast("😬 "+error.message);return}
-  openAuth("code");
-}
-async function verifyCode(){
-  const token = $("authCode").value.trim();
-  const {error} = await supa.auth.verifyOtp({email:authEmail, token, type:"email"});
-  if(error){toast("😬 "+error.message);return}
-  closeModal(); toast("Welcome. Your judgement is now legally binding.");
+async function anonLogin(){
+  const {error} = await supa.auth.signInAnonymously();
+  if(error){toast("😬 "+error.message+" — is Anonymous sign-in enabled in Supabase?");return}
+  closeModal(); toast("You're in. Your judgement is now legally binding.");
 }
 function setAuthUI(session){
   loggedIn = !!session;
-  $("loginBtn").textContent = loggedIn ? "@"+((session.user&&session.user.email)||"you").split("@")[0]+" 🧻" : "Log in";
+  const em = session && session.user && session.user.email;
+  $("loginBtn").textContent = loggedIn ? (em ? "@"+em.split("@")[0] : "@anon")+" 🧻" : "Log in";
 }
 function toggleLogin(){
   if(loggedIn){ supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
