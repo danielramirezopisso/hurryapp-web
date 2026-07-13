@@ -248,12 +248,14 @@ button{font-family:inherit;cursor:pointer}
 .fab-add:hover{background:var(--acento-dark);transform:scale(1.06)}
 .fab-add:active{transform:scale(.94)}
 #addBanner{
-  position:fixed;top:7.4rem;left:50%;transform:translateX(-50%) translateY(-160%);z-index:24;
+  position:fixed;top:7.4rem;left:50%;z-index:24;
   background:var(--ink);color:var(--porcelana);border-radius:999px;padding:.55rem .6rem .55rem 1.1rem;
   display:flex;align-items:center;gap:.8rem;font-size:.8rem;font-weight:600;box-shadow:var(--shadow);
-  transition:transform .35s cubic-bezier(.3,.9,.3,1);max-width:92vw;
+  max-width:92vw;
+  opacity:0;visibility:hidden;transform:translateX(-50%) translateY(-14px);
+  transition:opacity .3s,visibility .3s,transform .3s cubic-bezier(.3,.9,.3,1);
 }
-#addBanner.on{transform:translateX(-50%) translateY(0)}
+#addBanner.on{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
 #addBanner button{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.35rem .8rem;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 </style>
 </head>
@@ -270,6 +272,7 @@ button{font-family:inherit;cursor:pointer}
     <button class="chip-btn icon" onclick="openSearch()" aria-label="Search a city" title="Search a city">🔍</button>
     <button class="chip-btn icon" onclick="toggleColorblind()" aria-label="Colorblind mode" title="Colorblind mode" id="cbBtn">👁️</button>
     <button class="chip-btn" onclick="openAbout()">About</button>
+    <a class="chip-btn" id="adminBtn" href="admin.html" style="display:none;text-decoration:none" title="Throne Room">👑 Admin</a>
     <button class="chip-btn dark" id="loginBtn" onclick="toggleLogin()">Log in</button>
   </div>
 </div>
@@ -806,6 +809,8 @@ function setAuthUI(session){
   const u = session && session.user;
   const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
   $("loginBtn").textContent = loggedIn ? "@"+(name||"anon")+" 🧻" : "Log in";
+  const isAdmin = !!(u && (u.email||"").toLowerCase()==="dropisso@gmail.com");
+  $("adminBtn").style.display = isAdmin ? "" : "none";
 }
 function toggleLogin(){
   if(loggedIn){ supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
