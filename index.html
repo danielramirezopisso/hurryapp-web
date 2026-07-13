@@ -315,7 +315,7 @@ button{font-family:inherit;cursor:pointer}
 <div class="filters" id="filters">
   <button class="f on" data-f="all">All thrones</button>
   <button class="f" data-f="good"><span class="dot" style="background:var(--ok)"></span>4+ rolls</button>
-  <button class="f" data-f="paper">🧻 Paper confirmed</button>
+  <button class="f" data-f="paper">💩 Battle-tested</button>
   <button class="f" data-f="handi">♿ Accessible</button>
   <button class="f" data-f="baby">🚼 Baby changer</button>
   <button class="f" data-f="risky"><span class="dot" style="background:var(--bad)"></span>I like danger</button>
@@ -362,7 +362,7 @@ button{font-family:inherit;cursor:pointer}
 const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3duYWV3Ymtha2pnZW1qdGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MDYxMzEsImV4cCI6MjA5OTQ4MjEzMX0.pG9WqTRiIdxOtuRa0qyqRn-8KZr-3Sb1JmWF76L0HoA";
 
-const MOT_MAP = {1:"yes", 2:"maybe", 3:"no"};         // if Yes/No look swapped on real data, flip this map
+const MOT_MAP = {1:"yes", 2:"maybe", 3:"no"};         // 1 = "I have shit here" | 2 = "I would" | 3 = "never"
 let YOU = [41.3870, 2.1700];                          // replaced by data centroid + real geolocation
 let BATHROOMS = [];
 let nextId = 1000000;
@@ -467,10 +467,10 @@ function rolls(score, n){
   return html;
 }
 const MOT = {
-  yes:{cls:"yes",txt:"🧻 Moment of Truth™ — paper confirmed. Go in peace."},
-  maybe:{cls:"maybe",txt:"🎲 Moment of Truth™ — paper is a coin flip. Bring napkins."},
-  no:{cls:"no",txt:"🚫 Moment of Truth™ — no paper. You have been warned."},
-  unknown:{cls:"maybe",txt:"🕵️ Moment of Truth™ — no data. Schrödinger's paper."},
+  yes:{cls:"yes",txt:"💩 Moment of Truth™ — 'I've shit here.' A veteran speaks. Trust the experience."},
+  maybe:{cls:"maybe",txt:"🤔 Moment of Truth™ — 'I'd shit here.' Untested, but the vibes are right."},
+  no:{cls:"no",txt:"🙅 Moment of Truth™ — 'I'd NEVER shit here.' Heed the warning."},
+  unknown:{cls:"maybe",txt:"🕵️ Moment of Truth™ — no verdict yet. Someone must go first."},
 };
 
 /* ================= MAP ================= */
@@ -540,7 +540,7 @@ function openList(){
           <h3>${esc(b.name)}</h3>
           <div class="r-sub">${esc(b.addr)}</div>
           <div class="badges">
-            <span class="badge paper-${b.paper}">🧻 ${b.paper==="yes"?"paper":b.paper==="maybe"?"maybe":"no paper"}</span>
+            <span class="badge paper-${b.paper==="unknown"?"maybe":b.paper}">${b.paper==="yes"?"💩 been done":b.paper==="maybe"?"🤔 would":b.paper==="no"?"🙅 never":"❔ no verdict"}</span>
             ${b.handi?'<span class="badge">♿</span>':""}
             ${b.baby?'<span class="badge">🚼</span>':""}
           </div>
@@ -684,7 +684,7 @@ $("filters").addEventListener("click",e=>{
   syncChips(); drawMarkers();
   if($("sheet").classList.contains("open") && !selectedId) openList();
   const nActive = [FLT.score,FLT.paper,FLT.handi,FLT.baby].filter(Boolean).length;
-  const quips = {good:"Only the finest porcelain.",risky:"Godspeed, you absolute maniac.",paper:"Trust, but verify.",handi:"Accessible thrones.",baby:"For the tiny emperors."};
+  const quips = {good:"Only the finest porcelain.",risky:"Godspeed, you absolute maniac.",paper:"Only thrones with confirmed action.",handi:"Accessible thrones.",baby:"For the tiny emperors."};
   if(!nActive) toast("Everything. Even the horrors. Brave.");
   else {
     const turnedOn = btn.classList.contains("on");
@@ -754,11 +754,11 @@ function openRate(id){
       <div class="seg" id="segSmell">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('smell',${n},this)">${n}</button>`).join("")}</div></div>
     <div class="m-row"><label>🧻 Paper softness (1 = sandpaper · 5 = cloud)</label>
       <div class="seg" id="segSoft">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('soft',${n},this)">${n}</button>`).join("")}</div></div>
-    <div class="m-row"><label>🧻 The Moment of Truth™ — was there paper?</label>
+    <div class="m-row"><label>💩 The Moment of Truth™</label>
       <div class="seg" id="segPaper">
-        <button onclick="setSegV('paper','yes',this)">Yes 🙌</button>
-        <button onclick="setSegV('paper','maybe',this)">Barely 😬</button>
-        <button onclick="setSegV('paper','no',this)">No 💀</button>
+        <button onclick="setSegV('paper','yes',this)">I've shit here</button>
+        <button onclick="setSegV('paper','maybe',this)">I'd shit here</button>
+        <button onclick="setSegV('paper','no',this)">I'd NEVER</button>
       </div></div>
     <div class="m-row"><label>♿ Accessible? &nbsp;·&nbsp; 🚼 Baby changer?</label>
       <div class="seg">
@@ -1010,7 +1010,7 @@ function openAbout(){
       HurryApp is the community map of usable thrones — rated in 🧻 rolls by people who were there in their darkest hour.
     </p>
     <p style="font-size:.92rem;line-height:1.65;margin-bottom:1rem">
-      Check the <strong>Moment of Truth™</strong> (was there paper?), filter by what matters, and when it's urgent —
+      Check the <strong>Moment of Truth™</strong> — the sacred three-level scale: <em>I've shit here · I'd shit here · I'd never</em> — filter by what matters, and when it's urgent —
       press the red button. We'll point you to the nearest decent option. <em class="serif">Walk fast. Believe.</em>
     </p>
     <div style="display:flex;gap:.55rem;margin-top:1.2rem">
