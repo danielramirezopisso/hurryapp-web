@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HurryApp — Find a throne. Fast.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --porcelana:#F8F5EF;
+  --ink:#26241F;
+  --acento:#C75146;       /* refined coral, not neon */
+  --acento-dark:#A83D33;
+  --oro:#C9A227;          /* muted brass for rolls */
+  --ok:#5E8C61;           /* sage */
+  --meh:#C9A227;
+  --bad:#B0564B;          /* soft brick */
+  --card:#FFFFFF;
+  --line:rgba(38,36,31,.12);
+  --shadow:0 8px 26px rgba(38,36,31,.13);
+}
+body.colorblind{ --ok:#4477AA; --meh:#EE7733; --bad:#882255; }
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:'DM Sans',sans-serif;font-weight:400;
+  background:var(--porcelana);color:var(--ink);overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,.serif{font-family:'DM Serif Display',serif;font-weight:400}
+button{font-family:inherit;cursor:pointer}
+:focus-visible{outline:2.5px solid var(--acento);outline-offset:2px}
+
+/* ================= MAP ================= */
+#map{position:fixed;inset:0;z-index:1}
+.leaflet-container{background:#EDEAE2;font-family:inherit}
+
+/* ================= TOP BAR ================= */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  padding:.9rem 1rem;pointer-events:none;gap:.6rem;
+}
+.brand{
+  pointer-events:auto;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:.5rem 1.15rem;display:flex;align-items:center;gap:.6rem;
+  box-shadow:var(--shadow);
+}
+.brand .logo{font-family:'DM Serif Display',serif;font-size:1.2rem;letter-spacing:.01em}
+.brand .logo i{font-style:italic;color:var(--acento)}
+.brand .slogan{font-size:.6rem;opacity:.55;max-width:120px;line-height:1.25;display:none}
+@media(min-width:600px){.brand .slogan{display:block}}
+.top-actions{pointer-events:auto;display:flex;gap:.45rem}
+.chip-btn{
+  background:var(--card);border:1px solid var(--line);border-radius:999px;
+  padding:.5rem .95rem;font-size:.76rem;font-weight:600;box-shadow:var(--shadow);
+  transition:transform .15s,background .2s;
+}
+.chip-btn:hover{transform:translateY(-1px)}
+.chip-btn.dark{background:var(--ink);color:var(--porcelana);border-color:var(--ink)}
+.chip-btn.icon{padding:.5rem .7rem}
+
+/* ================= FILTERS ================= */
+.filters{
+  position:fixed;top:4.1rem;left:0;right:0;z-index:19;
+  display:flex;gap:.4rem;padding:.35rem 1rem;overflow-x:auto;
+  scrollbar-width:none;pointer-events:none;
+}
+.filters::-webkit-scrollbar{display:none}
+.filters .f{
+  pointer-events:auto;flex-shrink:0;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:.4rem .85rem;font-size:.72rem;font-weight:600;
+  box-shadow:0 3px 10px rgba(38,36,31,.08);transition:all .15s;color:var(--ink);
+}
+.filters .f.on{background:var(--ink);color:var(--porcelana);border-color:var(--ink)}
+.filters .f .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.35rem;vertical-align:1px}
+
+/* ================= PANIC ================= */
+.panic{
+  position:fixed;bottom:max(1.2rem, env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+  z-index:25;background:var(--acento);color:#fff;border:none;border-radius:999px;
+  padding:.95rem 1.8rem;font-size:.92rem;font-weight:700;letter-spacing:.01em;
+  box-shadow:0 10px 28px rgba(199,81,70,.4);white-space:nowrap;
+  transition:background .2s,transform .15s;animation:breathe 3.2s ease-in-out infinite;
+}
+@keyframes breathe{0%,100%{box-shadow:0 10px 28px rgba(199,81,70,.35)}50%{box-shadow:0 10px 34px rgba(199,81,70,.6)}}
+.panic:hover{background:var(--acento-dark)}
+.panic:active{transform:translateX(-50%) scale(.97)}
+.panic.sheet-open{bottom:calc(46vh + 1rem)}
+@media(min-width:760px){.panic.sheet-open{bottom:max(1.2rem, env(safe-area-inset-bottom))}}
+
+/* ================= SHEET ================= */
+.sheet{
+  position:fixed;z-index:22;background:var(--card);border-radius:20px 20px 0 0;
+  bottom:0;left:0;right:0;max-height:45vh;overflow-y:auto;
+  box-shadow:0 -10px 34px rgba(38,36,31,.16);
+  transform:translateY(105%);transition:transform .35s cubic-bezier(.3,.9,.3,1);
+  padding:0 1.15rem 1.4rem;border:1px solid var(--line);border-bottom:none;
+}
+.sheet.open{transform:translateY(0)}
+@media(min-width:760px){
+  .sheet{left:1.2rem;right:auto;bottom:1.2rem;width:378px;max-height:74vh;border-radius:16px;border-bottom:1px solid var(--line);transform:translateY(0) translateX(-120%)}
+  .sheet.open{transform:translateY(0) translateX(0)}
+}
+.sheet-grab{width:42px;height:4px;border-radius:2px;background:var(--line);margin:.7rem auto .4rem}
+@media(min-width:760px){.sheet-grab{display:none}}
+.sheet-head{display:flex;justify-content:space-between;align-items:baseline;padding:.65rem 0 .45rem;position:sticky;top:0;background:var(--card);z-index:2}
+.sheet-head h2{font-size:1.35rem;letter-spacing:.01em}
+.sheet-head .count-note{font-size:.64rem;opacity:.5;display:block;font-family:'DM Sans'}
+.sheet-close{background:none;border:none;font-size:1.2rem;opacity:.45;padding:.2rem .4rem}
+.sheet-close:hover{opacity:1}
+
+.row{
+  display:flex;gap:.85rem;align-items:center;padding:.85rem 0;border-top:1px solid var(--line);
+  cursor:pointer;transition:background .15s;
+}
+.row:hover{background:rgba(38,36,31,.025)}
+.row .r-body{flex:1;min-width:0}
+.row h3{font-size:1.05rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .r-sub{font-size:.72rem;opacity:.55}
+.row .r-dist{font-weight:700;font-size:.86rem;text-align:right}
+.row .r-dist small{display:block;font-weight:400;font-size:.6rem;opacity:.5}
+.badges{display:flex;gap:.3rem;margin-top:.2rem;flex-wrap:wrap}
+.badge{font-size:.6rem;font-weight:700;padding:.14rem .52rem;border-radius:999px;background:rgba(38,36,31,.06)}
+.badge.paper-yes{background:rgba(94,140,97,.14);color:#3F6B44}
+.badge.paper-maybe{background:rgba(201,162,39,.16);color:#8A6D12}
+.badge.paper-no{background:rgba(176,86,75,.13);color:#8E3F35}
+
+/* score pin */
+.score-pin{
+  width:40px;height:40px;border-radius:50% 50% 50% 5px;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-weight:700;font-size:.8rem;border:2.5px solid var(--porcelana);
+  box-shadow:0 3px 10px rgba(38,36,31,.3);transform:rotate(-45deg);flex-shrink:0;
+  font-family:'DM Sans',sans-serif;
+}
+.score-pin span{transform:rotate(45deg)}
+.score-pin.g{background:var(--ok)}
+.score-pin.y{background:var(--meh)}
+.score-pin.r{background:var(--bad)}
+.score-pin.u{background:#9A958C}
+.leaflet-div-icon{background:none;border:none}
+.score-pin.selected{width:48px;height:48px;font-size:.92rem}
+
+/* detail */
+.detail h2{font-size:1.55rem;line-height:1.12}
+.detail .d-addr{font-size:.76rem;opacity:.55;margin:.25rem 0 .6rem}
+.rolls{display:flex;gap:.14rem;align-items:center}
+.rolls svg{width:24px;height:24px}
+.rolls .num{font-weight:700;margin-left:.4rem;font-size:1rem}
+.rolls .nrev{font-size:.68rem;opacity:.5;margin-left:.35rem}
+.rolls.pickable svg{width:32px;height:32px;cursor:pointer;transition:transform .12s}
+.rolls.pickable svg:hover{transform:scale(1.18) rotate(-8deg)}
+.mot{margin:.75rem 0;padding:.7rem .9rem;border-radius:11px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:.5rem}
+.mot.yes{background:rgba(94,140,97,.11);color:#3F6B44}
+.mot.maybe{background:rgba(201,162,39,.13);color:#8A6D12}
+.mot.no{background:rgba(176,86,75,.11);color:#8E3F35}
+.d-attrs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.4rem 0 .8rem}
+.d-photos{display:flex;gap:.5rem;margin:.6rem 0 1rem}
+.d-photos .ph{
+  flex:1;aspect-ratio:4/3;border-radius:10px;border:1px dashed var(--line);
+  background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:1.05rem;opacity:.5;
+}
+.d-review{font-size:.86rem;background:var(--porcelana);border-left:2px solid var(--oro);border-radius:0 10px 10px 0;padding:.8rem .95rem;margin-bottom:1rem;line-height:1.55}
+.d-review em{font-family:'DM Serif Display',serif;font-style:italic;font-size:.95rem}
+.d-review .who{display:block;font-size:.64rem;opacity:.5;margin-top:.35rem;font-weight:600}
+.d-actions{display:flex;gap:.55rem}
+.btn{
+  border-radius:999px;border:none;padding:.8rem 1.3rem;font-size:.78rem;font-weight:700;
+  transition:transform .15s,background .2s;flex:1;text-align:center;
+}
+.btn:active{transform:scale(.97)}
+.btn-ink{background:var(--ink);color:var(--porcelana)}
+.btn-ink:hover{background:#000}
+.btn-ghost{background:transparent;border:1.5px solid var(--ink);color:var(--ink)}
+.btn-ghost:hover{background:var(--ink);color:var(--porcelana)}
+.back-list{background:none;border:none;font-size:.72rem;font-weight:700;opacity:.55;padding:.5rem 0}
+.back-list:hover{opacity:1}
+
+/* ================= MODALS ================= */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(38,36,31,.45);backdrop-filter:blur(3px);
+  z-index:40;display:none;align-items:flex-end;justify-content:center;
+}
+@media(min-width:560px){.modal-backdrop{align-items:center}}
+.modal-backdrop.open{display:flex}
+.modal{
+  background:var(--card);width:100%;max-width:430px;max-height:88vh;overflow-y:auto;
+  border-radius:20px 20px 0 0;padding:1.6rem 1.4rem 1.8rem;animation:up .3s cubic-bezier(.3,.9,.3,1);
+}
+@media(min-width:560px){.modal{border-radius:18px}}
+@keyframes up{from{transform:translateY(36px);opacity:0}to{transform:none;opacity:1}}
+.modal h2{font-size:1.5rem;margin-bottom:.15rem}
+.modal .m-sub{font-size:.8rem;opacity:.6;margin-bottom:1.2rem}
+.m-row{margin-bottom:1.05rem}
+.m-row label{display:block;font-size:.64rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:.4rem;opacity:.6}
+.m-row input,.m-row textarea{
+  width:100%;border:1.5px solid var(--line);border-radius:11px;padding:.72rem .85rem;
+  font-family:inherit;font-size:.94rem;background:var(--porcelana);color:var(--ink);
+}
+.m-row input:focus,.m-row textarea:focus{outline:none;border-color:var(--ink)}
+.seg{display:flex;gap:.35rem}
+.seg button{
+  flex:1;border:1.5px solid var(--line);background:var(--porcelana);border-radius:9px;
+  padding:.55rem .3rem;font-size:.76rem;font-weight:600;transition:all .15s;color:var(--ink);
+}
+.seg button.on{background:var(--ink);color:var(--porcelana);border-color:var(--ink)}
+.auth-tabs{display:flex;gap:.4rem;margin-bottom:1.1rem}
+.auth-tabs button{
+  flex:1;background:none;border:none;border-bottom:2px solid var(--line);padding:.5rem;
+  font-size:.8rem;font-weight:700;opacity:.5;
+}
+.auth-tabs button.on{opacity:1;border-bottom-color:var(--acento)}
+.demo-note{text-align:center;font-size:.6rem;opacity:.4;margin-top:1rem;text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+
+/* ================= TOAST / FLASH ================= */
+#toast{
+  position:fixed;top:1rem;left:50%;transform:translateX(-50%) translateY(-80px);
+  background:var(--ink);color:var(--porcelana);padding:.75rem 1.4rem;border-radius:999px;
+  font-size:.8rem;font-weight:600;z-index:60;transition:transform .35s cubic-bezier(.3,.9,.3,1);
+  box-shadow:var(--shadow);max-width:92vw;text-align:center;
+}
+#toast.show{transform:translateX(-50%) translateY(0)}
+#panicFlash{
+  position:fixed;inset:0;background:rgba(38,36,31,.92);z-index:55;pointer-events:none;
+  opacity:0;transition:opacity .3s;display:flex;align-items:center;justify-content:center;
+}
+#panicFlash.go{opacity:1}
+#panicFlash .pf-text{
+  color:var(--porcelana);font-family:'DM Serif Display',serif;
+  font-size:clamp(1.5rem,5.6vw,2.6rem);text-align:center;line-height:1.2;padding:1.2rem;max-width:26ch;
+}
+#panicFlash .pf-text i{font-style:italic;color:var(--oro)}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="logo">Hurry<i>App</i></span>
+    <span class="slogan">Make your shitting great again</span>
+  </div>
+  <div class="top-actions">
+    <button class="chip-btn icon" onclick="openSearch()" aria-label="Search a city" title="Search a city">🔍</button>
+    <button class="chip-btn icon" onclick="toggleColorblind()" aria-label="Colorblind mode" title="Colorblind mode" id="cbBtn">👁️</button>
+    <button class="chip-btn" onclick="openAbout()">About</button>
+    <button class="chip-btn dark" id="loginBtn" onclick="toggleLogin()">Log in</button>
+  </div>
+</div>
+
+<div class="filters" id="filters">
+  <button class="f on" data-f="all">All thrones</button>
+  <button class="f" data-f="good"><span class="dot" style="background:var(--ok)"></span>4+ rolls</button>
+  <button class="f" data-f="paper">🧻 Paper confirmed</button>
+  <button class="f" data-f="handi">♿ Accessible</button>
+  <button class="f" data-f="baby">🚼 Baby changer</button>
+  <button class="f" data-f="risky"><span class="dot" style="background:var(--bad)"></span>I like danger</button>
+</div>
+
+<button class="panic" id="panicBtn" onclick="panic()">🚨 I need to go. <em>Now.</em></button>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-grab"></div>
+  <div id="sheetBody"></div>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<div id="panicFlash"><div class="pf-text" id="pfText"></div></div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ================= LIVE DATA — Supabase ================= */
+const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3duYWV3Ymtha2pnZW1qdGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MDYxMzEsImV4cCI6MjA5OTQ4MjEzMX0.pG9WqTRiIdxOtuRa0qyqRn-8KZr-3Sb1JmWF76L0HoA";
+
+const MOT_MAP = {1:"yes", 2:"maybe", 3:"no"};         // if Yes/No look swapped on real data, flip this map
+let YOU = [41.3870, 2.1700];                          // replaced by data centroid + real geolocation
+let BATHROOMS = [];
+let nextId = 1000000;
+
+/* ---- quip engine: your real numbers in, comedy out (deterministic per throne) ---- */
+function seeded(id,n){let x=(id*2654435761)>>>0;x=((x^(x>>13))*1274126177)>>>0;return x%n}
+const HANDLES=["@throne_hunter","@certified_sitter","@porcelain_scout","@anon_and_brave","@field_researcher","@paper_inspector","@onsite_analyst","@the_committee"];
+const QUIPS={
+  unrated:["Uncharted territory. Be the hero who rates it first.","No reviews yet. The community looks away. You could change that.","A mystery throne. Schrödinger would be proud."],
+  legendary:["Silent. Spotless. Somewhere, someone was playing Chopin.","I felt like royalty with an emergency. Would panic again.","This is what civilization was building toward."],
+  horror:["I've seen things. It was free and still overpriced.","I'd rather go home. And I live far away.","The less said, the better. The score says it all."],
+  smellBad:["The smell arrives before you do. It leaves after you.","Breathe through your mouth. Trust me on this.","My nose filed a formal complaint."],
+  smellGood:["Smells better than my apartment. Not sure how to feel.","Lavender? In this economy? Respect."],
+  dirtyBad:["Cleanliness is a concept here. A distant, theoretical concept.","Bring shoes you don't love."],
+  cleanGood:["You could eat off the floor. Please don't. But you could.","Cleaner than most operating rooms. Verified by vibes."],
+  paperSand:["The paper is technically present. Sandpaper is also technically paper.","Softness rating: municipal. You have been warned."],
+  paperCloud:["The paper? A cloud. A gentle, forgiving cloud.","Three-ply. Someone here loves us."],
+  mid:["Perfectly adequate. The highest praise a public bathroom can earn.","It does the job. The job gets done. No poetry needed.","Not the hero we deserved, but the one that was available."]
+};
+function quipFor(b){
+  let pool;
+  if(b.score===null) pool=QUIPS.unrated;
+  else if(b.smell!==null&&b.smell<=1.6) pool=QUIPS.smellBad;
+  else if(b.clean!==null&&b.clean<=1.6) pool=QUIPS.dirtyBad;
+  else if(b.soft!==null&&b.soft<=1.6) pool=QUIPS.paperSand;
+  else if(b.score>=4.5) pool=QUIPS.legendary;
+  else if(b.score<=1.7) pool=QUIPS.horror;
+  else if(b.soft!==null&&b.soft>=4.5) pool=QUIPS.paperCloud;
+  else if(b.smell!==null&&b.smell>=4.5) pool=QUIPS.smellGood;
+  else if(b.clean!==null&&b.clean>=4.6) pool=QUIPS.cleanGood;
+  else pool=QUIPS.mid;
+  return pool[seeded(b.id,pool.length)];
+}
+async function loadThrones(){
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/map_thrones?select=*`,{
+    headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
+  });
+  if(!r.ok) throw new Error("Supabase replied "+r.status+" — check URL/key and that the map_thrones view exists");
+  const rows = await r.json();
+  BATHROOMS = rows.map(x=>({
+    id:x.id, name:x.name||"Unnamed Throne", addr:x.address||"Location classified",
+    lat:+x.latitude, lng:+x.longitude,
+    score:x.score===null?null:+x.score, n:+x.n_reviews||0,
+    clean:x.cleanliness===null?null:+x.cleanliness,
+    smell:x.smell===null?null:+x.smell,
+    soft:x.paper_softness===null?null:+x.paper_softness,
+    handi:!!x.handicapped, baby:!!x.babies,
+    paper:x.moment_of_truth==null?"unknown":(MOT_MAP[x.moment_of_truth]||"unknown"),
+    photos:+x.n_photos||0
+  })).filter(b=>Number.isFinite(b.lat)&&Number.isFinite(b.lng));
+  BATHROOMS.forEach(b=>{b.review=quipFor(b);b.who=HANDLES[seeded(b.id+7,HANDLES.length)]});
+}
+
+/* ================= STATE ================= */
+let map, markers = {}, activeFilter = "all", selectedId = null, loggedIn = false, addMode = false, routeLine = null;
+
+/* ================= HELPERS ================= */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function toast(m){const t=$("toast");t.innerHTML=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),3000)}
+function dist(a,b){
+  const R=6371000,dLa=(b[0]-a[0])*Math.PI/180,dLo=(b[1]-a[1])*Math.PI/180;
+  const x=Math.sin(dLa/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLo/2)**2;
+  return Math.round(R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)));
+}
+const distLabel = m => m<1000? m+" m" : (m/1000).toFixed(1)+" km";
+const walkTime = m => Math.max(1,Math.round(m/80))+" min";
+const bucket = s => s===null?"u":s>=4?"g":s>=2.5?"y":"r";
+function rollSVG(fill){
+  return `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="10" width="24" height="24" rx="4" fill="${fill}"/>
+    <rect x="6" y="20" width="24" height="14" rx="3" fill="${fill}" opacity=".72"/>
+    <ellipse cx="18" cy="10" rx="12" ry="6" fill="${fill}"/>
+    <ellipse cx="18" cy="10" rx="5" ry="2.4" fill="#F8F5EF"/>
+    <rect x="27" y="12" width="7" height="16" rx="2" fill="${fill}" opacity=".85"/>
+  </svg>`;
+}
+function rolls(score, n){
+  if(score===null) return `<span class="rolls"><span class="num" style="opacity:.55">No rolls yet</span><span class="nrev">· awaiting a brave reviewer</span></span>`;
+  let html = `<span class="rolls">`;
+  for(let i=1;i<=5;i++) html += rollSVG(i<=Math.round(score) ? "#C9A227" : "rgba(38,36,31,.13)");
+  html += `<span class="num">${score.toFixed(1)}</span>${n?`<span class="nrev">· ${n} reviews</span>`:""}</span>`;
+  return html;
+}
+const MOT = {
+  yes:{cls:"yes",txt:"🧻 Moment of Truth™ — paper confirmed. Go in peace."},
+  maybe:{cls:"maybe",txt:"🎲 Moment of Truth™ — paper is a coin flip. Bring napkins."},
+  no:{cls:"no",txt:"🚫 Moment of Truth™ — no paper. You have been warned."},
+  unknown:{cls:"maybe",txt:"🕵️ Moment of Truth™ — no data. Schrödinger's paper."},
+};
+
+/* ================= MAP ================= */
+function initMap(){
+  map = L.map("map",{zoomControl:false}).setView(YOU,15);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{
+    attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:20,subdomains:"abcd",
+  }).addTo(map);
+  L.control.zoom({position:"bottomright"}).addTo(map);
+  L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
+    .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
+  drawMarkers();
+  map.on("click", e=>{ if(addMode){ addMode=false; openAddForm(e.latlng); } });
+}
+const markerIcon = (b,sel=false) => L.divIcon({
+  html:`<div class="score-pin ${bucket(b.score)} ${sel?"selected":""}"><span>${b.score===null?"?":b.score.toFixed(1)}</span></div>`,
+  iconSize:[40,40],iconAnchor:[20,40],
+});
+function passesFilter(b){
+  switch(activeFilter){
+    case "good": return b.score!==null && b.score>=4;
+    case "paper": return b.paper==="yes";
+    case "handi": return b.handi;
+    case "baby": return b.baby;
+    case "risky": return b.score!==null && b.score<2.5;
+    default: return true;
+  }
+}
+function drawMarkers(){
+  Object.values(markers).forEach(m=>map.removeLayer(m));
+  markers = {};
+  BATHROOMS.filter(passesFilter).forEach(b=>{
+    const m = L.marker([b.lat,b.lng],{icon:markerIcon(b,b.id===selectedId)}).addTo(map);
+    m.on("click",()=>openDetail(b.id));
+    markers[b.id]=m;
+  });
+}
+
+/* ================= LIST ================= */
+function openList(){
+  selectedId = null; drawMarkers();
+  const all = BATHROOMS.filter(passesFilter)
+    .map(b=>({...b,d:dist(YOU,[b.lat,b.lng])})).sort((a,b)=>a.d-b.d);
+  const list = all.slice(0,60);
+  $("sheetBody").innerHTML = `
+    <div class="sheet-head">
+      <h2>${all.length} thrones found
+        <span class="count-note">${BATHROOMS.length} real thrones · live from your database${all.length>60?" · showing the nearest 60":""}</span></h2>
+      <button class="sheet-close" onclick="closeSheet()" aria-label="Close">✕</button>
+    </div>
+    ${list.map(b=>`
+      <div class="row" onclick="openDetail(${b.id})">
+        <div class="score-pin ${bucket(b.score)}"><span>${b.score===null?"?":b.score.toFixed(1)}</span></div>
+        <div class="r-body">
+          <h3>${esc(b.name)}</h3>
+          <div class="r-sub">${esc(b.addr)}</div>
+          <div class="badges">
+            <span class="badge paper-${b.paper}">🧻 ${b.paper==="yes"?"paper":b.paper==="maybe"?"maybe":"no paper"}</span>
+            ${b.handi?'<span class="badge">♿</span>':""}
+            ${b.baby?'<span class="badge">🚼</span>':""}
+          </div>
+        </div>
+        <div class="r-dist">${distLabel(b.d)}<small>${walkTime(b.d)} of hope</small></div>
+      </div>`).join("")}
+    <button class="btn btn-ghost" style="width:100%;margin-top:1rem" onclick="startAdd()">＋ Add a throne to the map</button>
+    <p class="demo-note">Demo — thrones are fictional. Your urgency is real.</p>`;
+  showSheet();
+}
+
+/* ================= DETAIL ================= */
+function openDetail(id){
+  selectedId = id; drawMarkers();
+  const b = BATHROOMS.find(x=>x.id===id);
+  const d = dist(YOU,[b.lat,b.lng]);
+  map.flyTo([b.lat,b.lng],17,{duration:.6});
+  const mot = MOT[b.paper];
+  $("sheetBody").innerHTML = `
+    <div class="sheet-head">
+      <button class="back-list" onclick="openList()">← All thrones</button>
+      <button class="sheet-close" onclick="closeSheet()" aria-label="Close">✕</button>
+    </div>
+    <div class="detail">
+      <h2>${esc(b.name)}</h2>
+      <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it</p>
+      ${rolls(b.score,b.n)}
+      <div class="mot ${mot.cls}">${mot.txt}</div>
+      <div class="d-attrs">
+        ${b.clean!==null?`<span class="badge">🧼 Cleanliness ${b.clean.toFixed(1)}</span>`:""}
+        ${b.smell!==null?`<span class="badge">👃 Smell ${b.smell.toFixed(1)}</span>`:""}
+        ${b.soft!==null?`<span class="badge">🧻 Softness ${b.soft.toFixed(1)}</span>`:""}
+        ${b.handi?'<span class="badge">♿ Accessible</span>':""}
+        ${b.baby?'<span class="badge">🚼 Baby changer</span>':""}
+      </div>
+      <div class="d-photos"><div class="ph">📷 ${b.photos} photo${b.photos===1?"":"s"} in the vault — gallery coming in phase 2</div></div>
+      <div class="d-review"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
+      <div class="d-actions">
+        <button class="btn btn-ink" onclick="openRate(${b.id})">Rate this throne</button>
+        <button class="btn btn-ghost" onclick="fakeRoute(${b.id})">Take me there</button>
+      </div>
+    </div>`;
+  showSheet();
+}
+function fakeRoute(id){
+  const b = BATHROOMS.find(x=>x.id===id);
+  if(routeLine) map.removeLayer(routeLine);
+  routeLine = L.polyline([YOU,[b.lat,b.lng]],{color:"#C75146",weight:3.5,dashArray:"7 9",opacity:.8}).addTo(map);
+  map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
+  toast(`🏃 ${distLabel(dist(YOU,[b.lat,b.lng]))}. Walk with purpose.`);
+}
+function showSheet(){$("sheet").classList.add("open");$("panicBtn").classList.add("sheet-open")}
+function closeSheet(){$("sheet").classList.remove("open");$("panicBtn").classList.remove("sheet-open");selectedId=null;drawMarkers();if(routeLine){map.removeLayer(routeLine);routeLine=null}}
+
+/* ================= PANIC ================= */
+function panic(){
+  const flash = $("panicFlash"), txt = $("pfText");
+  txt.innerHTML = "Locating the nearest <i>decent</i> throne…";
+  flash.classList.add("go");
+  const run = (origin)=>{
+    let cands = BATHROOMS.filter(b=>b.score!==null && b.score>=3.8 && b.paper!=="no");
+    if(!cands.length) cands = BATHROOMS.filter(b=>b.score!==null && b.score>=3);
+    if(!cands.length) cands = BATHROOMS;
+    const target = cands.map(b=>({...b,d:dist(origin,[b.lat,b.lng])})).sort((a,b)=>a.d-b.d)[0];
+    setTimeout(()=>{
+      txt.innerHTML = `<i>${esc(target.name)}</i><br>${distLabel(target.d)} · ${walkTime(target.d)}. Walk fast. Believe.`;
+      setTimeout(()=>{
+        flash.classList.remove("go");
+        openDetail(target.id);
+        fakeRoute(target.id);
+      },1400);
+    },900);
+  };
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(p=>run([p.coords.latitude,p.coords.longitude]),()=>run(YOU),{timeout:2500});
+  } else run(YOU);
+}
+
+/* ================= FILTERS ================= */
+$("filters").addEventListener("click",e=>{
+  const b = e.target.closest(".f"); if(!b) return;
+  document.querySelectorAll(".filters .f").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");
+  activeFilter = b.dataset.f;
+  drawMarkers();
+  if($("sheet").classList.contains("open") && !selectedId) openList();
+  const quips = {good:"Only the finest porcelain for you.",paper:"Trust, but verify.",risky:"Godspeed, you absolute maniac.",handi:"Accessible thrones only.",baby:"For the tiny emperors.",all:"Showing everything. Even the Metro. Brave."};
+  toast(quips[activeFilter]);
+});
+
+/* ================= SEARCH (restored from the original) ================= */
+function openSearch(){
+  openModal(`
+    <h2>Bathrooms in another city?</h2>
+    <p class="m-sub">Planning ahead. Smart. Your colon thanks you.</p>
+    <div class="m-row"><label>City or address</label><input id="searchQ" placeholder="e.g. Madrid, Gran Vía" onkeydown="if(event.key==='Enter')doSearch()"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="doSearch()">Fly me there</button>
+    <p class="demo-note">Search powered by OpenStreetMap</p>`);
+  setTimeout(()=>$("searchQ").focus(),100);
+}
+async function doSearch(){
+  const q = $("searchQ").value.trim();
+  if(!q) return;
+  try{
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const res = await r.json();
+    if(!res.length){ toast("Couldn't find that place. Even we have limits."); return; }
+    closeModal();
+    map.flyTo([+res[0].lat,+res[0].lon],14,{duration:1.1});
+    toast(`📍 ${esc(res[0].display_name.split(",")[0])} — demo thrones live in Barcelona, but the map is yours.`);
+  }catch(e){ toast("Search hiccup. Try again in a sec."); }
+}
+
+/* ================= COLORBLIND MODE (restored) ================= */
+function toggleColorblind(){
+  document.body.classList.toggle("colorblind");
+  const on = document.body.classList.contains("colorblind");
+  $("cbBtn").style.background = on ? "var(--ink)" : "";
+  $("cbBtn").style.color = on ? "var(--porcelana)" : "";
+  drawMarkers();
+  toast(on ? "Colorblind palette on — pins also always show the number." : "Standard palette restored.");
+}
+
+/* ================= MODALS ================= */
+function openModal(html){$("modalBox").innerHTML=html;$("modalBackdrop").classList.add("open")}
+function closeModal(){$("modalBackdrop").classList.remove("open")}
+$("modalBackdrop").addEventListener("click",e=>{if(e.target===$("modalBackdrop"))closeModal()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
+
+/* ---- rate (full dimensions, matching the Postgres schema) ---- */
+let pick = {};
+function openRate(id){
+  if(!loggedIn){ openAuth("login","You need an account to judge other people's toilets. It's only fair."); return; }
+  const b = BATHROOMS.find(x=>x.id===id);
+  pick = {id,score:0,clean:0,smell:0,paper:null,handi:null,baby:null};
+  openModal(`
+    <h2>Rate ${esc(b.name)}</h2>
+    <p class="m-sub">Your civic duty. Future desperate strangers thank you.</p>
+    <div class="m-row"><label>Overall, in rolls</label>
+      <span class="rolls pickable" id="pickRolls">${[1,2,3,4,5].map(i=>`<span onclick="setScore(${i})" style="display:inline-block">${rollSVG("rgba(38,36,31,.13)")}</span>`).join("")}</span>
+    </div>
+    <div class="m-row"><label>🧼 Cleanliness</label>
+      <div class="seg" id="segClean">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('clean',${n},this)">${n}</button>`).join("")}</div></div>
+    <div class="m-row"><label>👃 Smell (1 = crime scene · 5 = spa)</label>
+      <div class="seg" id="segSmell">${[1,2,3,4,5].map(n=>`<button onclick="setSeg('smell',${n},this)">${n}</button>`).join("")}</div></div>
+    <div class="m-row"><label>🧻 The Moment of Truth™ — was there paper?</label>
+      <div class="seg" id="segPaper">
+        <button onclick="setSegV('paper','yes',this)">Yes 🙌</button>
+        <button onclick="setSegV('paper','maybe',this)">Barely 😬</button>
+        <button onclick="setSegV('paper','no',this)">No 💀</button>
+      </div></div>
+    <div class="m-row"><label>♿ Accessible? &nbsp;·&nbsp; 🚼 Baby changer?</label>
+      <div class="seg">
+        <button id="tHandi" onclick="toggleAttr('handi',this)">♿ Yes</button>
+        <button id="tBaby" onclick="toggleAttr('baby',this)">🚼 Yes</button>
+      </div></div>
+    <div class="m-row"><label>One-line review — make it count</label>
+      <input id="revText" maxlength="120" placeholder="e.g. 'The hand dryer could launch a kite.'"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="submitRate()">Submit judgement</button>
+    <p class="demo-note">Demo — nothing is saved. Your opinion still matters. Sort of.</p>`);
+}
+function setScore(n){
+  pick.score=n;
+  $("pickRolls").querySelectorAll("span[onclick]").forEach((s,i)=>{ s.innerHTML = rollSVG(i<n ? "#C9A227" : "rgba(38,36,31,.13)"); });
+}
+function setSeg(k,n,btn){pick[k]=n;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
+function setSegV(k,v,btn){pick[k]=v;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
+function toggleAttr(k,btn){pick[k]=!pick[k];btn.classList.toggle("on")}
+function submitRate(){
+  if(!pick.score){toast("Zero rolls is not a rating. It's a cry for help. Pick 1–5.");return}
+  const b = BATHROOMS.find(x=>x.id===pick.id);
+  b.score = b.score===null?pick.score:Math.round(((b.score*b.n + pick.score)/(b.n+1))*10)/10;
+  b.n += 1;
+  if(pick.clean) b.clean = b.clean===null?pick.clean:Math.round(((b.clean+pick.clean)/2)*10)/10;
+  if(pick.smell) b.smell = b.smell===null?pick.smell:Math.round(((b.smell+pick.smell)/2)*10)/10;
+  if(pick.paper) b.paper = pick.paper;
+  if(pick.handi) b.handi = true;
+  if(pick.baby) b.baby = true;
+  const rev = $("revText").value.trim();
+  if(rev){ b.review = rev; b.who = "@you_just_now"; }
+  closeModal(); drawMarkers(); openDetail(b.id);
+  toast("Judgement recorded in this session. Writing to the real DB lands in phase 2. 🧻");
+}
+
+/* ---- add a throne ---- */
+let nbScore = 0;
+function startAdd(){
+  if(!loggedIn){ openAuth("signup","Create an account first — anonymous thrones cannot be trusted."); return; }
+  addMode = true; closeModal(); closeSheet();
+  toast("👆 Tap the map where the throne lives.");
+}
+function openAddForm(latlng){
+  openModal(`
+    <h2>Enthrone a new WC</h2>
+    <p class="m-sub">Pin dropped at ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}. You're doing God's work.</p>
+    <div class="m-row"><label>Name it — be creative, be honest</label><input id="nbName" placeholder="e.g. The Porcelain Palace"></div>
+    <div class="m-row"><label>Where exactly</label><input id="nbAddr" placeholder="e.g. Bar Manolo · back room, ask nicely"></div>
+    <div class="m-row"><label>First impression, in rolls</label>
+      <div class="seg">${[1,2,3,4,5].map(n=>`<button onclick="nbScore=${n};this.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on')">${n}</button>`).join("")}</div></div>
+    <button class="btn btn-ink" style="width:100%" onclick="submitNew(${latlng.lat},${latlng.lng})">Add to the map of civilization</button>
+    <p class="demo-note">Demo — thrones live only in this session</p>`);
+}
+function submitNew(lat,lng){
+  const name = $("nbName").value.trim() || "Unnamed Throne";
+  const addr = $("nbAddr").value.trim() || "Somewhere out there";
+  BATHROOMS.push({id:nextId++,name,addr,lat,lng,score:nbScore||3,n:1,paper:"maybe",handi:false,baby:false,clean:nbScore||3,smell:nbScore||3,soft:null,photos:0,review:"Freshly discovered. Reviews pending. Enter at your own risk.",who:"@pioneer"});
+  nbScore = 0; closeModal(); drawMarkers();
+  toast(`🏛️ "${esc(name)}" is now on the map. Humanity thanks you.`);
+}
+
+/* ---- auth: login + sign up (restored registration) ---- */
+function openAuth(tab="login", reason){
+  openModal(`
+    <div class="auth-tabs">
+      <button id="tabLogin" class="${tab==="login"?"on":""}" onclick="openAuth('login')">Log in</button>
+      <button id="tabSignup" class="${tab==="signup"?"on":""}" onclick="openAuth('signup')">Create account</button>
+    </div>
+    ${reason?`<p class="m-sub">${esc(reason)}</p>`:""}
+    ${tab==="login" ? `
+      <div class="m-row"><label>Email</label><input placeholder="you@holdingiton.com"></div>
+      <div class="m-row"><label>Password</label><input type="password" placeholder="••••••••"></div>
+      <button class="btn btn-ink" style="width:100%" onclick="doLogin()">Let me in — in every sense</button>
+    ` : `
+      <div class="m-row"><label>Username</label><input placeholder="e.g. throne_hunter"></div>
+      <div class="m-row"><label>Email</label><input placeholder="you@holdingiton.com"></div>
+      <div class="m-row"><label>Password</label><input type="password" placeholder="••••••••"></div>
+      <button class="btn btn-ink" style="width:100%" onclick="doLogin()">Join the resistance</button>
+    `}
+    <p class="demo-note">Demo — any credentials work. We trust you. Foolishly.</p>`);
+}
+function toggleLogin(){
+  if(loggedIn){ loggedIn=false; $("loginBtn").textContent="Log in"; toast("Logged out. Stay regular. 👋"); }
+  else openAuth("login");
+}
+function doLogin(){
+  loggedIn = true; $("loginBtn").textContent="@you 🧻";
+  closeModal(); toast("Welcome. Your judgement is now legally binding.");
+}
+
+/* ---- about ---- */
+function openAbout(){
+  openModal(`
+    <h2>What is HurryApp?</h2>
+    <p class="m-sub">The question everyone asks. Never twice.</p>
+    <p style="font-size:.92rem;line-height:1.65;margin-bottom:1rem">
+      Sometimes you <strong>really</strong> need a bathroom, and the city pretends they don't exist.
+      HurryApp is the community map of usable thrones — rated in 🧻 rolls by people who were there in their darkest hour.
+    </p>
+    <p style="font-size:.92rem;line-height:1.65;margin-bottom:1rem">
+      Check the <strong>Moment of Truth™</strong> (was there paper?), filter by what matters, and when it's urgent —
+      press the red button. We'll point you to the nearest decent option. <em class="serif">Walk fast. Believe.</em>
+    </p>
+    <div style="display:flex;gap:.55rem;margin-top:1.2rem">
+      <button class="btn btn-ink" onclick="closeModal();panic()">🚨 Try the button</button>
+      <button class="btn btn-ghost" onclick="startAdd()">＋ Add a throne</button>
+    </div>
+    <p class="demo-note">Design demo · slogan status: unapologetic</p>`);
+}
+
+/* ================= INIT ================= */
+(async function(){
+  try{
+    if(SUPABASE_URL.indexOf("PASTE")===0) throw new Error("missing config");
+    await loadThrones();
+    if(!BATHROOMS.length) throw new Error("view returned 0 rows — did you run the map_thrones SQL?");
+    YOU = [
+      BATHROOMS.reduce((a,b)=>a+b.lat,0)/BATHROOMS.length,
+      BATHROOMS.reduce((a,b)=>a+b.lng,0)/BATHROOMS.length
+    ];
+    initMap();
+    map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
+    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{YOU=[p.coords.latitude,p.coords.longitude]});
+    setTimeout(openList, 500);
+    toast(`🧻 ${BATHROOMS.length} real thrones loaded. This is not a drill.`);
+  }catch(e){
+    document.body.innerHTML = '<div style="font-family:DM Sans,sans-serif;padding:3rem;max-width:62ch;margin:auto;color:#26241F"><h1 style="font-family:DM Serif Display,serif;font-size:2rem">Almost there.</h1><p style="margin-top:1rem;line-height:1.7">1. Open this file in a text editor.<br>2. Paste your <b>SUPABASE_URL</b> and <b>SUPABASE_ANON_KEY</b> at the top of the &lt;script&gt; (Supabase → Settings → API).<br>3. Make sure you ran the <code>map_thrones</code> SQL.<br><br><span style="opacity:.6">Details: '+e.message+'</span></p></div>';
+  }
+})();
+</script>
+</body>
+</html>
