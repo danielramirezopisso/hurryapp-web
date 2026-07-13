@@ -173,6 +173,16 @@ button{font-family:inherit;cursor:pointer}
   background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:.78rem;opacity:.5;text-align:center;padding:.5rem;
 }
 .lightbox-img{width:100%;border-radius:12px;display:block}
+.lb-wrap{position:relative}
+.lb-nav{
+  position:absolute;top:50%;transform:translateY(-50%);
+  width:42px;height:42px;border-radius:50%;border:none;background:rgba(38,36,31,.75);color:var(--porcelana);
+  font-size:1.25rem;line-height:1;display:flex;align-items:center;justify-content:center;
+}
+.lb-nav:hover{background:var(--ink)}
+.lb-nav.prev{left:.6rem}
+.lb-nav.next{right:.6rem}
+.lb-count{text-align:center;font-size:.72rem;opacity:.55;margin-top:.6rem;font-weight:600;letter-spacing:.08em}
 .d-review{font-size:.86rem;background:var(--porcelana);border-left:2px solid var(--oro);border-radius:0 10px 10px 0;padding:.8rem .95rem;margin-bottom:1rem;line-height:1.55}
 .d-review em{font-family:'DM Serif Display',serif;font-style:italic;font-size:.95rem}
 .d-review .who{display:block;font-size:.64rem;opacity:.5;margin-top:.35rem;font-weight:600}
@@ -420,8 +430,9 @@ function rollSVG(fill){
 }
 function rolls(score, n){
   if(score===null) return `<span class="rolls"><span class="num" style="opacity:.55">No rolls yet</span><span class="nrev">· awaiting a brave reviewer</span></span>`;
+  const col = score>=4 ? "var(--ok)" : score>=2.5 ? "var(--meh)" : "var(--bad)"; // same language as the map pins
   let html = `<span class="rolls">`;
-  for(let i=1;i<=5;i++) html += rollSVG(i<=Math.round(score) ? "#C9A227" : "rgba(38,36,31,.13)");
+  for(let i=1;i<=5;i++) html += rollSVG(i<=Math.round(score) ? col : "rgba(38,36,31,.13)");
   html += `<span class="num">${score.toFixed(1)}</span>${n?`<span class="nrev">· ${n} reviews</span>`:""}</span>`;
   return html;
 }
@@ -558,16 +569,37 @@ async function loadPhotos(id){
     if(!Array.isArray(rows) || !rows.length){
       strip.innerHTML = '<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; return;
     }
-    strip.innerHTML = rows.map(x=>{
-      const u = photoURL(x.file_name);
-      return `<img src="${u}" loading="lazy" alt="Throne photo" onclick="openPhoto('${u.replace(/'/g,"%27")}')" onerror="this.remove()">`;
-    }).join("");
+    LB.list = rows.map(x=>photoURL(x.file_name));
+    strip.innerHTML = LB.list.map((u,i)=>
+      `<img src="${u}" loading="lazy" alt="Throne photo" onclick="lbOpen(${i})" onerror="LB.dead.add(${i});this.remove()">`
+    ).join("");
     // if every img 404s (orphan DB rows), fall back to the empty message
     setTimeout(()=>{ if(strip && !strip.querySelector("img") && selectedId===id) strip.innerHTML='<div class="ph">📷 No photos yet. Be the first paparazzi of this throne.</div>'; }, 4000);
   }catch(e){}
 }
-function openPhoto(u){
-  openModal(`<img class="lightbox-img" src="${u}" alt="Throne photo, full size">`);
+const LB = {list:[], i:0, open:false, dead:new Set()};
+function lbOpen(i){
+  LB.i = i; LB.open = true;
+  const many = LB.list.length>1;
+  openModal(`
+    <div class="lb-wrap">
+      <img class="lightbox-img" id="lbImg" src="${LB.list[i]}" alt="Throne photo, full size">
+      ${many?`<button class="lb-nav prev" onclick="lbStep(-1)" aria-label="Previous photo">‹</button>
+      <button class="lb-nav next" onclick="lbStep(1)" aria-label="Next photo">›</button>`:""}
+    </div>
+    ${many?`<p class="lb-count" id="lbCount">${i+1} / ${LB.list.length}</p>`:""}`);
+}
+function lbStep(dir){
+  if(!LB.open || LB.list.length<2) return;
+  let n = LB.i;
+  for(let k=0;k<LB.list.length;k++){ // skip photos that 404'd in the strip
+    n = (n + dir + LB.list.length) % LB.list.length;
+    if(!LB.dead.has(n)) break;
+  }
+  LB.i = n;
+  const img=$("lbImg"), c=$("lbCount");
+  if(img) img.src = LB.list[n];
+  if(c) c.textContent = `${n+1} / ${LB.list.length}`;
 }
 function fakeRoute(id){
   const b = BATHROOMS.find(x=>x.id===id);
@@ -665,9 +697,13 @@ function toggleColorblind(){
 
 /* ================= MODALS ================= */
 function openModal(html){exitAddMode();$("modalBox").innerHTML=html;$("modalBackdrop").classList.add("open")}
-function closeModal(){$("modalBackdrop").classList.remove("open")}
+function closeModal(){$("modalBackdrop").classList.remove("open");LB.open=false}
 $("modalBackdrop").addEventListener("click",e=>{if(e.target===$("modalBackdrop"))closeModal()});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();exitAddMode()}});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){closeModal();exitAddMode()}
+  else if(e.key==="ArrowRight") lbStep(1);
+  else if(e.key==="ArrowLeft") lbStep(-1);
+});
 
 /* ---- rate (full dimensions, matching the Postgres schema) ---- */
 let pick = {};
@@ -705,7 +741,7 @@ function openRate(id){
 }
 function setScore(n){
   pick.score=n;
-  $("pickRolls").querySelectorAll("span[onclick]").forEach((s,i)=>{ s.innerHTML = rollSVG(i<n ? "#C9A227" : "rgba(38,36,31,.13)"); });
+  $("pickRolls").querySelectorAll("span[onclick]").forEach((s,i)=>{ s.innerHTML = rollSVG(i<n ? "var(--acento)" : "rgba(38,36,31,.13)"); });
 }
 function setSeg(k,n,btn){pick[k]=n;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
 function setSegV(k,v,btn){pick[k]=v;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
