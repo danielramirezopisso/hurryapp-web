@@ -618,7 +618,8 @@ function openDetail(id){
         ${b.baby?'<span class="badge">🚼 Baby changer</span>':""}
       </div>
       <div class="d-photos" id="phStrip">${b.photos>0?'<div class="ph">📷 Loading '+b.photos+' photo'+(b.photos===1?"":"s")+'…</div>':'<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'}<button class="ph-add" onclick="pickPhotos(${b.id})" title="Add a photo">＋<span>photo</span></button></div>
-      <div class="d-review"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
+      <div class="d-review" id="quipBox"><em>"${esc(b.review)}"</em><span class="who">${esc(b.who)} · certified survivor</span></div>
+      <div id="verdWall"></div>
       <div class="d-actions">
         <button class="btn btn-ink" onclick="openRate(${b.id})">${MYREV[b.id]?"✏️ Edit your review":"Rate this throne"}</button>
         <button class="btn btn-ghost" onclick="fakeRoute(${b.id})">Take me there</button>
@@ -627,6 +628,28 @@ function openDetail(id){
     </div>`;
   showSheet();
   if(b.photos>0) loadPhotos(b.id);
+  if(b.n>0) loadVerdicts(b.id);
+}
+async function loadVerdicts(id){
+  try{
+    const {data,error} = await supa.rpc("throne_verdicts",{p_id:id});
+    const wall = $("verdWall");
+    if(error || !wall || selectedId!==id || !Array.isArray(data)) return;
+    const texted = data.filter(v=>v.review_text);
+    const silent = data.length - texted.length;
+    if(!texted.length) return; // no words — the generated quip stays
+    const quip = $("quipBox"); if(quip) quip.style.display = "none"; // the wall includes the latest real one
+    const fmt = d => { try{ return new Date(d).toLocaleDateString("en-GB",{month:"short",year:"numeric"}); }catch(e){ return ""; } };
+    const motMini = m => m===1?"💩":m===2?"🤔":m===3?"🙅":"";
+    wall.innerHTML = `
+      <div class="a-title" style="font-size:.64rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acento);margin:.2rem 0 .55rem">📜 The Verdict Wall · ${texted.length}</div>
+      ${texted.map(v=>`
+        <div class="d-review" style="margin-bottom:.55rem">
+          <em>"${esc(v.review_text)}"</em>
+          <span class="who">@${esc(v.username)} · ${v.score} 🧻 ${motMini(v.moment_of_truth)} · ${fmt(v.created_on)}</span>
+        </div>`).join("")}
+      ${silent>0?`<p style="font-size:.68rem;opacity:.5;margin:-.2rem 0 .8rem">+ ${silent} silent judgement${silent===1?"":"s"} — rolls only, no words</p>`:""}`;
+  }catch(e){}
 }
 const photoURL = f => `${SUPABASE_URL}/storage/v1/object/public/photos/${encodeURI(f)}`;
 async function loadPhotos(id){
@@ -866,7 +889,7 @@ async function submitRate(){
   closeModal();
   await refetchThrone(pick.id);
   drawMarkers(); openDetail(pick.id);
-  toast(editing?"Judgement revised. History rewritten. 🧻":"Judgement recorded. Forever. In the real database. 🧻");
+  toast(editing?"Judgement revised. History rewritten. 🧻":"Judgement recorded. +10 karma. 🧻");
 }
 
 /* ---- add a throne ---- */
@@ -954,7 +977,7 @@ async function submitNew(lat,lng){
   if(files.length) await uploadPhotos(data, files);
   await refetchThrone(data);
   drawMarkers(); openDetail(data);
-  toast(`🏛️ "${esc(name)}" is on the map${files.length?" — photos included":""}. Humanity thanks you.`);
+  toast(`🏛️ "${esc(name)}" is on the map${files.length?" — photos included":""}. +25 karma. Humanity thanks you.`);
 }
 
 /* ---- photo upload: resize in the browser (max 1600px, q80), then Storage + DB ---- */
@@ -1079,6 +1102,18 @@ function toggleLogin(){
 }
 
 /* ---- Hall of Thrones: live awards from the real data ---- */
+const HALL_COUNTRIES = ["spain","espana","españa","catalonia","cataluna","cataluña","united states","estados unidos","france","greece","turkey","south africa","argentina","andorra","switzerland","united kingdom","canada","usa","uk"];
+function cityOf(addr){
+  if(!addr) return null;
+  const toks = String(addr).split(",");
+  const cands = [];
+  for(let i=toks.length-1; i>=1 && cands.length<2; i--){
+    const t = toks[i].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\b\d+\b/g,"").replace(/[^a-z ]/g," ").replace(/\s+/g," ").trim();
+    if(t.length>2 && !HALL_COUNTRIES.includes(t)) cands.push(t);
+  }
+  const c = cands[1] || cands[0];
+  return c ? c.replace(/\b\w/g, m=>m.toUpperCase()) : null;
+}
 function best(list, fn, dir=1){ // dir 1 = max, -1 = min
   const c = list.filter(b=>fn(b)!=null && !isNaN(fn(b)));
   if(!c.length) return null;
@@ -1125,7 +1160,91 @@ function openHall(){
     ${awardRow("☣️","The Nose Destroyer", nose, nose?nose.smell.toFixed(1):"", "smell")}
     ${awardRow("📸","Most Photographed", photo, photo?photo.photos:"", "photos")}
     ${awardRow("🗺️","The Pilgrimage", far, far?(dist(med,[far.lat,far.lng])>=1000?Math.round(dist(med,[far.lat,far.lng])/100)/10+"k":Math.round(dist(med,[far.lat,far.lng])))+" km":"", "from the pack")}
+    ${cityChampions(R)}
+    <button class="btn btn-ghost" style="width:100%;margin-top:1.1rem" onclick="openLeaderboard()">🎖️ Contributor Leaderboard</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:.55rem" onclick="shareHall()">↗ Share the ceremony</button>
     <p class="demo-note">Winners update as the community judges. Democracy at its finest.</p>`);
+}
+function cityChampions(R){
+  const groups = {};
+  R.forEach(b=>{ const c = cityOf(b.addr); if(c){ (groups[c]=groups[c]||[]).push(b); } });
+  const cities = Object.entries(groups).filter(([,v])=>v.length>=3)
+    .sort((a,b)=>b[1].length-a[1].length).slice(0,6);
+  if(!cities.length) return "";
+  return `
+    <div style="margin-top:1.3rem;padding-top:.4rem">
+      <div class="a-title" style="font-size:.66rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acento)">🏙️ City Champions</div>
+    </div>
+    ${cities.map(([city,list])=>{
+      const champ = list.slice().sort((a,b)=>b.score-a.score || b.n-a.n)[0];
+      return `<div class="award" onclick="closeModal();openDetail(${champ.id})">
+        <span class="a-emoji">🏙️</span>
+        <div class="a-body">
+          <div class="a-title">${esc(city)} · ${list.length} thrones</div>
+          <div class="a-winner">${esc(champ.name)}</div>
+        </div>
+        <span class="a-stat">${champ.score.toFixed(1)}<small>rolls</small></span>
+      </div>`;
+    }).join("")}`;
+}
+async function shareHall(){
+  const url = location.origin + location.pathname + "?hall=1";
+  const text = "🏆 The Hall of Thrones — the best (and worst) bathrooms on Earth, judged by people who were there.";
+  if(navigator.share){
+    try{ await navigator.share({title:"HurryApp · Hall of Thrones", text, url}); return; }
+    catch(e){ if(e && e.name==="AbortError") return; }
+  }
+  try{ await navigator.clipboard.writeText(text+" "+url); toast("🔗 Ceremony link copied. Spread the glory."); }
+  catch(e){ prompt("Copy the Hall link:", url); }
+}
+
+/* ---- 🎖️ karma & ranks ---- */
+const RANKS = [
+  [0,   "Restroom Rookie", "🚽"],
+  [25,  "Squire of the Seat", "🪑"],
+  [75,  "Knight of the Round Bowl", "⚔️"],
+  [150, "Throne Baron", "🎩"],
+  [300, "Flush Duke", "💎"],
+  [600, "Porcelain Emperor", "👑"],
+];
+function rankFor(k){
+  let cur = RANKS[0], next = null;
+  for(let i=0;i<RANKS.length;i++){
+    if(k >= RANKS[i][0]) cur = RANKS[i];
+    else { next = RANKS[i]; break; }
+  }
+  return {title:cur[1], emoji:cur[2], next};
+}
+async function openLeaderboard(){
+  openModal(`<h2>🎖️ The Contributors</h2><p class="m-sub">Summoning the heroes…</p>`);
+  let mineHtml = "";
+  if(loggedIn){
+    const {data:mk} = await supa.rpc("my_karma");
+    if(mk && mk.length){
+      const m = mk[0], r = rankFor(+m.karma);
+      const toNext = r.next ? `${r.next[0]-m.karma} karma to ${r.next[2]} ${r.next[1]}` : "Maximum glory achieved.";
+      mineHtml = `<div class="mot yes" style="margin:.2rem 0 1rem">${r.emoji} You: <b>${m.karma} karma</b> · ${r.title}<br><span style="font-weight:400;font-size:.74rem;opacity:.75">${m.reviews} reviews · ${m.thrones} thrones · ${m.photos} photos — ${toNext}</span></div>`;
+    }
+  }
+  const {data,error} = await supa.rpc("leaderboard");
+  if(error){ openModal(`<h2>🎖️ The Contributors</h2><p class="m-sub">😬 ${esc(error.message)}</p>`); return; }
+  const medal = i => i===0?"🥇":i===1?"🥈":i===2?"🥉":`<span style="opacity:.4;font-size:.8rem">#${i+1}</span>`;
+  openModal(`
+    <h2>🎖️ The Contributors</h2>
+    <p class="m-sub">+10 per review · +25 per throne discovered · +5 per photo. Glory is earned one flush at a time.</p>
+    ${mineHtml}
+    ${data.map((u,i)=>{
+      const r = rankFor(+u.karma);
+      return `<div class="award">
+        <span class="a-emoji">${medal(i)}</span>
+        <div class="a-body">
+          <div class="a-winner">@${esc(u.username)} <span style="font-size:.8rem">${r.emoji}</span></div>
+          <div class="a-sub">${r.title} · ${u.reviews} reviews · ${u.thrones} thrones · ${u.photos} photos</div>
+        </div>
+        <span class="a-stat">${u.karma}<small>karma</small></span>
+      </div>`;
+    }).join("")}
+    <p class="demo-note">Top 20 · usernames only, dignity optional</p>`);
 }
 
 /* ---- about ---- */
@@ -1163,7 +1282,7 @@ function openAbout(){
       if(n){
         const b = BATHROOMS.find(x=>x.id===id);
         if(b) b.photos += n;
-        toast(`📸 ${n} photo${n===1?"":"s"} up. The archive grows.`);
+        toast(`📸 ${n} photo${n===1?"":"s"} up. +${n*5} karma. The archive grows.`);
         if(selectedId===id) loadPhotos(id);
       }
     });
@@ -1176,9 +1295,13 @@ function openAbout(){
     initMap();
     map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
     if(navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{YOU=[p.coords.latitude,p.coords.longitude]});
-    const deepId = parseInt(new URLSearchParams(location.search).get("throne"),10);
+    const params = new URLSearchParams(location.search);
+    const deepId = parseInt(params.get("throne"),10);
     const deepB = BATHROOMS.find(b=>b.id===deepId);
-    if(deepB){
+    if(params.get("hall")){
+      setTimeout(openHall, 600);
+      toast("🏆 Welcome to the ceremony.");
+    } else if(deepB){
       setTimeout(()=>openDetail(deepB.id), 400);
       toast(`🧻 Someone sent you a throne. Judge it well.`);
     } else {
