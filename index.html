@@ -1274,7 +1274,10 @@ async function openLeaderboard(){
     if(mk && mk.length){
       const m = mk[0], r = rankFor(+m.karma);
       const toNext = r.next ? `${r.next[0]-m.karma} karma to ${r.next[2]} ${r.next[1]}` : "Maximum glory achieved.";
-      mineHtml = `<div class="mot yes" style="margin:.2rem 0 1rem">${r.emoji} You: <b>${m.karma} karma</b> · ${r.title}<br><span style="font-weight:400;font-size:.74rem;opacity:.75">${m.reviews} reviews · ${m.thrones} thrones · ${m.photos} photos — ${toNext}</span></div>`;
+      mineHtml = `<div class="mot yes" style="margin:.2rem 0 1rem;display:block;text-align:center;padding:.7rem .8rem">
+        <div style="font-size:.86rem">${r.emoji} You: <b>${m.karma} karma</b> · ${r.title}</div>
+        <div style="font-size:.66rem;opacity:.6;margin-top:.2rem;font-weight:500">${toNext}</div>
+      </div>`;
     }
   }
   const {data,error} = await supa.rpc("leaderboard");
