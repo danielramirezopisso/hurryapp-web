@@ -170,7 +170,7 @@ button{font-family:inherit;cursor:pointer}
 .rolls .nrev{font-size:.68rem;opacity:.5;margin-left:.35rem}
 .rolls.pickable svg{width:32px;height:32px;cursor:pointer;transition:transform .12s}
 .rolls.pickable svg:hover{transform:scale(1.18) rotate(-8deg)}
-.mot{margin:.75rem 0;padding:.7rem .9rem;border-radius:11px;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:.5rem}
+.mot{margin:.55rem 0;padding:.5rem .8rem;border-radius:10px;font-size:.76rem;font-weight:600;display:flex;align-items:center;gap:.5rem;line-height:1.35}
 .mot.yes{background:rgba(94,140,97,.11);color:#3F6B44}
 .mot.maybe{background:rgba(201,162,39,.13);color:#8A6D12}
 .mot.no{background:rgba(176,86,75,.11);color:#8E3F35}
@@ -218,6 +218,8 @@ button{font-family:inherit;cursor:pointer}
 .d-review em{font-family:'DM Serif Display',serif;font-style:italic;font-size:.95rem}
 .d-review .who{display:block;font-size:.64rem;opacity:.5;margin-top:.35rem;font-weight:600}
 .d-actions{display:flex;gap:.55rem}
+.d-actions .btn{padding:.62rem .8rem;font-size:.72rem}
+.d-actions .btn-share{padding:.62rem .95rem;font-size:.9rem}
 .btn{
   border-radius:999px;border:none;padding:.8rem 1.3rem;font-size:.78rem;font-weight:700;
   transition:transform .15s,background .2s;flex:1;text-align:center;
@@ -506,10 +508,10 @@ function rolls(score, n){
   return html;
 }
 const MOT = {
-  yes:{cls:"yes",txt:"💩 Moment of Truth™ — 'I've shit here.' A veteran speaks. Trust the experience."},
-  maybe:{cls:"maybe",txt:"🤔 Moment of Truth™ — 'I'd shit here.' Untested, but the vibes are right."},
-  no:{cls:"no",txt:"🙅 Moment of Truth™ — 'I'd NEVER shit here.' Heed the warning."},
-  unknown:{cls:"maybe",txt:"🕵️ Moment of Truth™ — no verdict yet. Someone must go first."},
+  yes:{cls:"yes",txt:"💩 Moment of Truth™ — 'I've shit here.'"},
+  maybe:{cls:"maybe",txt:"🤔 Moment of Truth™ — 'I'd shit here.'"},
+  no:{cls:"no",txt:"🙅 Moment of Truth™ — 'I'd NEVER shit here.'"},
+  unknown:{cls:"maybe",txt:"🕵️ Moment of Truth™ — no verdict yet."},
 };
 
 /* ================= MAP ================= */
@@ -609,8 +611,7 @@ function openDetail(id){
     <div class="detail">
       <h2>${esc(b.name)}</h2>
       <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it${b.addedBy?` · discovered by @${esc(b.addedBy)}`:""}</p>
-      ${rolls(b.score,b.n)}
-      ${MYREV[b.id]?`<div class="mot yes" style="margin:.4rem 0 0;padding:.4rem .7rem;font-size:.72rem">🫵 Yours: ${MYREV[b.id].score} 🧻${MYREV[b.id].review_text?` — “${esc(MYREV[b.id].review_text)}”`:""}</div>`:""}
+      ${rolls(b.score,b.n)}${MYREV[b.id]?`<span class="nrev" style="font-size:.72rem;opacity:.65;font-weight:700;margin-left:.4rem">· 🫵 yours: ${MYREV[b.id].score}</span>`:""}
       <div class="mot ${mot.cls}">${mot.txt}</div>
       <div class="d-attrs">
         ${b.clean!==null?`<span class="badge">🧼 Cleanliness ${b.clean.toFixed(1)}</span>`:""}
