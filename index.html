@@ -112,7 +112,7 @@ button{font-family:inherit;cursor:pointer}
 /* ================= SHEET ================= */
 .sheet{
   position:fixed;z-index:22;background:var(--card);border-radius:20px 20px 0 0;
-  bottom:0;left:0;right:0;max-height:45vh;overflow-y:auto;
+  bottom:0;left:0;right:0;max-height:62vh;max-height:62dvh;overflow-y:auto;
   box-shadow:0 -10px 34px rgba(38,36,31,.16);
   transform:translateY(105%);transition:transform .35s cubic-bezier(.3,.9,.3,1);
   padding:0 1.15rem 1.4rem;border:1px solid var(--line);border-bottom:none;
@@ -320,6 +320,8 @@ button{font-family:inherit;cursor:pointer}
 .ab-use{background:var(--ok);color:#fff;border:none;border-radius:999px;padding:.4rem .85rem;font-size:.66rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .ab-cancel{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.4rem .85rem;font-size:.64rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 #addBanner button{background:var(--porcelana);color:var(--ink);border:none;border-radius:999px;padding:.35rem .8rem;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+#sheet,#sheetBody,.sheet,.sheet-body{scrollbar-width:none;-ms-overflow-style:none}
+#sheet::-webkit-scrollbar,#sheetBody::-webkit-scrollbar{display:none}
 </style>
 </head>
 <body>
@@ -608,7 +610,7 @@ function openDetail(id){
       <h2>${esc(b.name)}</h2>
       <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it${b.addedBy?` · discovered by @${esc(b.addedBy)}`:""}</p>
       ${rolls(b.score,b.n)}
-      ${MYREV[b.id]?`<div class="mot yes" style="margin:.6rem 0 0">🫵 Your verdict: ${MYREV[b.id].score} roll${MYREV[b.id].score===1?"":"s"}${MYREV[b.id].review_text?` — “${esc(MYREV[b.id].review_text)}”`:""}</div>`:""}
+      ${MYREV[b.id]?`<div class="mot yes" style="margin:.4rem 0 0;padding:.4rem .7rem;font-size:.72rem">🫵 Yours: ${MYREV[b.id].score} 🧻${MYREV[b.id].review_text?` — “${esc(MYREV[b.id].review_text)}”`:""}</div>`:""}
       <div class="mot ${mot.cls}">${mot.txt}</div>
       <div class="d-attrs">
         ${b.clean!==null?`<span class="badge">🧼 Cleanliness ${b.clean.toFixed(1)}</span>`:""}
@@ -890,6 +892,7 @@ async function submitRate(){
   await refetchThrone(pick.id);
   drawMarkers(); openDetail(pick.id);
   toast(editing?"Judgement revised. History rewritten. 🧻":"Judgement recorded. +10 karma. 🧻");
+  loadMyKarma();
 }
 
 /* ---- add a throne ---- */
@@ -978,6 +981,7 @@ async function submitNew(lat,lng){
   await refetchThrone(data);
   drawMarkers(); openDetail(data);
   toast(`🏛️ "${esc(name)}" is on the map${files.length?" — photos included":""}. +25 karma. Humanity thanks you.`);
+  loadMyKarma();
 }
 
 /* ---- photo upload: resize in the browser (max 1600px, q80), then Storage + DB ---- */
@@ -1085,21 +1089,54 @@ async function saveNewPassword(){
   if(error){toast("😬 "+error.message);return}
   closeModal(); toast("Password set. Welcome back. 👑");
 }
+let AUTH_NAME = null, MYK = null;
+function renderLoginBtn(){
+  const emoji = MYK ? rankFor(+MYK.karma).emoji : "🧻";
+  $("loginBtn").textContent = loggedIn ? "@"+(AUTH_NAME||"anon")+" "+emoji : "Log in";
+}
+async function loadMyKarma(){
+  if(!loggedIn){ MYK = null; return; }
+  try{
+    const {data} = await supa.rpc("my_karma");
+    if(data && data.length){ MYK = data[0]; renderLoginBtn(); }
+  }catch(e){}
+}
 function setAuthUI(session){
   const was = loggedIn;
   loggedIn = !!session;
-  if(loggedIn && !was) loadMyReviews();
-  if(!loggedIn && was){ MYREV = {}; if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
+  if(loggedIn && !was){ loadMyReviews(); loadMyKarma(); }
+  if(!loggedIn && was){ MYREV = {}; MYK = null; if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
   const u = session && session.user;
   const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
-  $("loginBtn").textContent = loggedIn ? "@"+(name||"anon")+" 🧻" : "Log in";
+  AUTH_NAME = name || "anon";
+  renderLoginBtn();
   const isAdmin = !!(u && (u.email||"").toLowerCase()==="dropisso@gmail.com");
   $("adminBtn").style.display = isAdmin ? "" : "none";
 }
 function toggleLogin(){
-  if(loggedIn){ supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
+  if(loggedIn) openAccount();
   else openAuth("email");
 }
+async function openAccount(){
+  openModal(`<h2>@${esc(AUTH_NAME||"anon")}</h2><p class="m-sub">Counting your deeds…</p>`);
+  let card = "";
+  try{
+    const {data} = await supa.rpc("my_karma");
+    if(data && data.length){
+      MYK = data[0]; renderLoginBtn();
+      const r = rankFor(+MYK.karma);
+      const toNext = r.next ? `${r.next[0]-MYK.karma} karma to ${r.next[2]} ${r.next[1]}` : "Maximum glory achieved.";
+      card = `<div class="mot yes" style="margin:.2rem 0 1rem">${r.emoji} <b>${MYK.karma} karma</b> · ${r.title}<br><span style="font-weight:400;font-size:.74rem;opacity:.75">${MYK.reviews} reviews · ${MYK.thrones} thrones · ${MYK.photos} photos — ${toNext}</span></div>`;
+    }
+  }catch(e){}
+  openModal(`
+    <h2>@${esc(AUTH_NAME||"anon")}</h2>
+    <p class="m-sub">Your porcelain career.</p>
+    ${card}
+    <button class="btn btn-ink" style="width:100%" onclick="closeModal();openLeaderboard()">🎖️ View leaderboard</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:.55rem" onclick="doLogout()">Log out</button>`);
+}
+function doLogout(){ closeModal(); supa.auth.signOut(); toast("Logged out. Stay regular. 👋"); }
 
 /* ---- Hall of Thrones: live awards from the real data ---- */
 const HALL_COUNTRIES = ["spain","espana","españa","catalonia","cataluna","cataluña","united states","estados unidos","france","greece","turkey","south africa","argentina","andorra","switzerland","united kingdom","canada","usa","uk"];
@@ -1283,6 +1320,7 @@ function openAbout(){
         const b = BATHROOMS.find(x=>x.id===id);
         if(b) b.photos += n;
         toast(`📸 ${n} photo${n===1?"":"s"} up. +${n*5} karma. The archive grows.`);
+        loadMyKarma();
         if(selectedId===id) loadPhotos(id);
       }
     });
