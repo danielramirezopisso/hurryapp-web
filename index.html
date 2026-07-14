@@ -1126,8 +1126,21 @@ async function openAccount(){
     if(data && data.length){
       MYK = data[0]; renderLoginBtn();
       const r = rankFor(+MYK.karma);
-      const toNext = r.next ? `${r.next[0]-MYK.karma} karma to ${r.next[2]} ${r.next[1]}` : "Maximum glory achieved.";
-      card = `<div class="mot yes" style="margin:.2rem 0 1rem">${r.emoji} <b>${MYK.karma} karma</b> · ${r.title}<br><span style="font-weight:400;font-size:.74rem;opacity:.75">${MYK.reviews} reviews · ${MYK.thrones} thrones · ${MYK.photos} photos — ${toNext}</span></div>`;
+      const toNext = r.next ? `${r.next[0]-MYK.karma} karma to ${r.next[2]} ${r.next[1]}` : "Maximum glory achieved. 🏔️";
+      const tile = (num,label)=>`<div style="flex:1;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:.7rem .3rem;text-align:center">
+        <div style="font-family:'DM Serif Display',serif;font-size:1.35rem;line-height:1">${num}</div>
+        <div style="font-size:.56rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin-top:.25rem">${label}</div></div>`;
+      card = `<div style="background:var(--porcelana);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1rem;margin:.2rem 0 1.1rem;text-align:center">
+        <div style="font-size:2.3rem;line-height:1">${r.emoji}</div>
+        <div style="font-family:'DM Serif Display',serif;font-size:1.7rem;margin:.3rem 0 .05rem">${MYK.karma} <span style="font-size:.95rem">karma</span></div>
+        <div style="font-size:.66rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--acento)">${r.title}</div>
+        <div style="display:flex;gap:.5rem;margin-top:.95rem">
+          ${tile(MYK.reviews,"reviews")}
+          ${tile(MYK.thrones,"thrones discovered")}
+          ${tile(MYK.photos,"photos")}
+        </div>
+        <div style="font-size:.68rem;opacity:.6;margin-top:.85rem">${toNext}</div>
+      </div>`;
     }
   }catch(e){}
   openModal(`
