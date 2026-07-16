@@ -560,7 +560,6 @@ function initMap(){
   L.control.zoom({position:"bottomright"}).addTo(map);
   L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
     .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
-  drawMarkers();
   clusterGroup = L.markerClusterGroup({
     showCoverageOnHover:false,
     maxClusterRadius:48,
@@ -579,6 +578,7 @@ function initMap(){
       });
     }
   }).addTo(map);
+  drawMarkers();
   map.on("click", e=>{ if(addMode){ exitAddMode(); openAddForm(e.latlng); } });
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
