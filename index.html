@@ -193,6 +193,20 @@ button{font-family:inherit;cursor:pointer}
 .claim-perks div{display:flex;gap:.55rem;align-items:baseline;font-size:.78rem;line-height:1.45}
 .claim-perks div span{flex-shrink:0;font-size:.95rem}
 .claim-perks b{font-weight:700}
+.modal.wide{max-width:760px}
+.mk-section{font-family:'DM Serif Display',serif;font-size:1.15rem;margin:1.3rem 0 .6rem;display:flex;align-items:center;gap:.5rem}
+.mk-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+@media(max-width:560px){.mk-grid{grid-template-columns:1fr}}
+.mk-card{background:var(--porcelana);border:1px solid var(--line);border-radius:13px;padding:.85rem .95rem;position:relative}
+.mk-card .mk-badge{position:absolute;top:.6rem;right:.6rem;font-size:.52rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;background:var(--oro);color:#fff;border-radius:999px;padding:.16rem .5rem}
+.mk-card h4{font-family:'DM Serif Display',serif;font-weight:400;font-size:1.02rem;margin:0 0 .1rem}
+.mk-card .mk-tag{font-size:.72rem;opacity:.7;margin-bottom:.45rem}
+.mk-card .mk-stat{display:inline-block;background:rgba(94,140,97,.13);color:#3F6B44;border-radius:999px;padding:.18rem .6rem;font-size:.6rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.5rem}
+.mk-card .mk-c{display:flex;gap:.45rem;align-items:baseline;font-size:.7rem;margin:.18rem 0}
+.mk-card .mk-c a{color:var(--acento);text-decoration:none;font-weight:600}
+.mk-card .mk-c a:hover{text-decoration:underline}
+.mk-card .mk-cta{margin-top:.55rem;width:100%;border-radius:999px;border:none;background:var(--ink);color:var(--porcelana);padding:.5rem;font-size:.68rem;font-weight:800;cursor:pointer}
+.mk-card .mk-cta:hover{background:#000}
 .award{
   display:flex;align-items:center;gap:.85rem;padding:.8rem .2rem;border-top:1px solid var(--line);
   cursor:pointer;transition:background .15s;
@@ -855,7 +869,7 @@ function toggleColorblind(){
 
 /* ================= MODALS ================= */
 function openModal(html){exitAddMode();$("modalBox").innerHTML=html;$("modalBackdrop").classList.add("open")}
-function closeModal(){$("modalBackdrop").classList.remove("open");LB.open=false}
+function closeModal(){$("modalBackdrop").classList.remove("open");$("modalBox").classList.remove("wide");LB.open=false}
 $("modalBackdrop").addEventListener("click",e=>{if(e.target===$("modalBackdrop"))closeModal()});
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"){closeModal();exitAddMode()}
@@ -911,7 +925,8 @@ function openRate(id){
 }
 function setScore(n){
   pick.score=n;
-  $("pickRolls").querySelectorAll("span[onclick]").forEach((s,i)=>{ s.innerHTML = rollSVG(i<n ? "var(--acento)" : "rgba(38,36,31,.13)"); });
+  const pcol = n>=4 ? "var(--ok)" : n>=3 ? "var(--meh)" : "var(--bad)";
+  $("pickRolls").querySelectorAll("span[onclick]").forEach((s,i)=>{ s.innerHTML = rollSVG(i<n ? pcol : "rgba(38,36,31,.13)"); });
 }
 function setSeg(k,n,btn){pick[k]=n;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
 function setSegV(k,v,btn){pick[k]=v;btn.parentNode.querySelectorAll("button").forEach(b=>b.classList.remove("on"));btn.classList.add("on")}
@@ -1494,27 +1509,56 @@ function ownerSticker(id){
   w.document.close();
 }
 
-/* ---- 🔨 artisans marketplace (preview) ---- */
-const ARTISANS = [
-  {n:"Porcelana Studio", city:"Barcelona", tag:"Interiorismo de baños con alma", emoji:"🎨"},
-  {n:"Reformas Trono Exprés", city:"Madrid", tag:"De horror a honor en 5 días", emoji:"⚡"},
-  {n:"Azulejo & Cal", city:"Valencia", tag:"Alicatados artesanos desde 1987", emoji:"🧱"},
-  {n:"LuxLoo Design", city:"Bilbao", tag:"Grifería y luz para tronos serios", emoji:"✨"},
+/* ---- 🔨 The Throne Marketplace ---- */
+const MARKETPLACE = [
+  {cat:"🎨 Designers", items:[
+    {n:"Porcelana Studio", tag:"Interiorismo de baños con alma", stat:"48 thrones designed",
+     tel:"+34 931 234 567", email:"hola@porcelanastudio.es", web:"porcelanastudio.es",
+     addr:"C/ Enric Granados 44, Barcelona", badge:"Featured", demo:true},
+    {n:"LuxLoo Design", tag:"Grifería, piedra y luz para tronos serios", stat:"31 thrones designed",
+     tel:"+34 944 567 890", email:"info@luxloo.es", web:"luxloo.es",
+     addr:"Alameda Urquijo 12, Bilbao", demo:true},
+  ]},
+  {cat:"🔨 Constructors", items:[
+    {n:"Reformas Trono Exprés", tag:"De horror a honor en 5 días", stat:"127 thrones fixed",
+     tel:"+34 915 678 901", email:"presupuestos@tronoexpres.es", web:"tronoexpres.es",
+     addr:"C/ Bravo Murillo 210, Madrid", badge:"Featured", demo:true},
+    {n:"Azulejo & Cal", tag:"Alicatados artesanos desde 1987", stat:"89 thrones fixed",
+     tel:"+34 963 210 987", email:"taller@azulejoycal.es", web:"azulejoycal.es",
+     addr:"Av. del Port 88, Valencia", demo:true},
+  ]},
+  {cat:"🧱 Material Providers", items:[
+    {n:"Roca", tag:"Sanitarios y porcelana — el estándar mundial del trono", stat:"In millions of bathrooms",
+     web:"roca.es", addr:"Av. Diagonal 513, Barcelona", badge:"The classic"},
+    {n:"Alberch", tag:"Materiales de construcción de confianza en el Barcelonès", stat:"Serving builders for decades",
+     addr:"Badalona, Barcelona"},
+    {n:"El Almacén del Rollo", tag:"Papel, jabón y ambientadores al por mayor", stat:"Used by 60+ bars",
+     tel:"+34 932 109 876", email:"pedidos@almacendelrollo.es", web:"almacendelrollo.es",
+     addr:"Pol. Ind. Can Roca, Terrassa", demo:true},
+  ]},
 ];
+function mkCard(a){
+  return `<div class="mk-card">
+    ${a.badge?`<span class="mk-badge">${a.badge}</span>`:""}
+    <h4>${esc(a.n)}</h4>
+    <div class="mk-tag">${esc(a.tag)}</div>
+    <span class="mk-stat">✓ ${esc(a.stat)}</span>
+    ${a.tel?`<div class="mk-c">📞 <a href="tel:${a.tel.replace(/\s/g,"")}">${esc(a.tel)}</a></div>`:""}
+    ${a.email?`<div class="mk-c">✉️ <a href="mailto:${a.email}">${esc(a.email)}</a></div>`:""}
+    ${a.web?`<div class="mk-c">🌐 <a href="https://${a.web}" target="_blank" rel="noopener">${esc(a.web)}</a></div>`:""}
+    ${a.addr?`<div class="mk-c">📍 <span>${esc(a.addr)}</span></div>`:""}
+    <button class="mk-cta" onclick="toast('📬 Quote request sent to ${esc(a.n)} — (marketplace preview: contact flow arrives with v2)')">Request a quote</button>
+  </div>`;
+}
 function openArtisans(){
   openModal(`
-    <h2>🔨 The Artisans</h2>
-    <p class="m-sub">Your throne deserves better? These people turn bathrooms into destinations.</p>
-    ${ARTISANS.map(a=>`
-      <div class="award" onclick="toast('🔨 Marketplace preview — contact flow arrives with v2.')">
-        <span class="a-emoji">${a.emoji}</span>
-        <div class="a-body">
-          <div class="a-winner">${a.n}</div>
-          <div class="a-sub">${a.tag} · ${a.city}</div>
-        </div>
-        <span class="a-stat" style="font-size:.66rem;opacity:.6">Request<br>quote</span>
-      </div>`).join("")}
-    <p class="demo-note" style="margin-top:.8rem">Are you a contractor or designer? Featured placement here — hola@dkc.es 😉</p>`);
+    <h2>🔨 The Throne Marketplace</h2>
+    <p class="m-sub">Everything your bathroom needs to stop being a warning and start being a destination — designers, builders and suppliers who take thrones seriously.</p>
+    ${MARKETPLACE.map(sec=>`
+      <div class="mk-section">${sec.cat}</div>
+      <div class="mk-grid">${sec.items.map(mkCard).join("")}</div>`).join("")}
+    <p class="demo-note" style="margin-top:1.1rem">Some listings are illustrative (preview). Are you a designer, builder or supplier? Featured placement here — hola@dkc.es 😉</p>`);
+  $("modalBox").classList.add("wide");
 }
 
 /* ---- about ---- */
