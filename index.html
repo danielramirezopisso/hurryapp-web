@@ -184,6 +184,10 @@ button{font-family:inherit;cursor:pointer}
   background:var(--porcelana);display:flex;align-items:center;justify-content:center;font-size:.78rem;opacity:.5;text-align:center;padding:.5rem;
 }
 .lightbox-img{width:100%;border-radius:12px;display:block}
+.owner-card{background:var(--porcelana);border-left:3px solid var(--oro);border-radius:10px;padding:.65rem .85rem;margin:.55rem 0}
+.owner-card .oc-head{font-size:.74rem;font-weight:700}
+.owner-card .oc-note{font-size:.78rem;font-style:italic;margin:.35rem 0 .1rem;opacity:.85}
+.owner-card .oc-meta{display:flex;gap:.9rem;flex-wrap:wrap;font-size:.68rem;opacity:.65;margin-top:.3rem}
 .award{
   display:flex;align-items:center;gap:.85rem;padding:.8rem .2rem;border-top:1px solid var(--line);
   cursor:pointer;transition:background .15s;
@@ -613,6 +617,7 @@ function openDetail(id){
       <p class="d-addr">${esc(b.addr)} · ${distLabel(d)} — ${walkTime(d)} if you power-walk like you mean it${b.addedBy?` · discovered by @${esc(b.addedBy)}`:""}</p>
       ${rolls(b.score,b.n)}${MYREV[b.id]?`<span class="nrev" style="font-size:.72rem;opacity:.65;font-weight:700;margin-left:.4rem">· 🫵 yours: ${MYREV[b.id].score}</span>`:""}
       <div class="mot ${mot.cls}">${mot.txt}</div>
+      <div id="ownerBox"></div>
       <div class="d-attrs">
         ${b.clean!==null?`<span class="badge">🧼 Cleanliness ${b.clean.toFixed(1)}</span>`:""}
         ${b.smell!==null?`<span class="badge">👃 Smell ${b.smell.toFixed(1)}</span>`:""}
@@ -628,10 +633,35 @@ function openDetail(id){
         <button class="btn btn-ghost" onclick="fakeRoute(${b.id})">Take me there</button>
         <button class="btn btn-ghost btn-share" onclick="shareThrone(${b.id})" aria-label="Share this throne" title="Share">↗</button>
       </div>
+      ${OWNED.has(b.id)
+        ? `<button class="back-list" style="width:100%;text-align:center;margin-top:.4rem" onclick="openOwnerEdit(${b.id})">🏛️ Owner: edit your card</button>`
+        : `<button class="back-list" style="width:100%;text-align:center;margin-top:.4rem;opacity:.55" onclick="openClaim(${b.id})">🏛️ Your business? Claim this throne</button>`}
     </div>`;
   showSheet();
   if(b.photos>0) loadPhotos(b.id);
   if(b.n>0) loadVerdicts(b.id);
+  loadOwner(b.id);
+}
+const OWNER_CACHE = {};
+async function loadOwner(id){
+  try{
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/throne_owner_info?bathroom_id=eq.${id}`,{
+      headers:{apikey:SUPABASE_ANON_KEY, Authorization:`Bearer ${SUPABASE_ANON_KEY}`}
+    });
+    const rows = await r.json();
+    const box = $("ownerBox");
+    if(!box || selectedId!==id || !Array.isArray(rows) || !rows.length){ if(box) box.innerHTML=""; return; }
+    const o = rows[0]; OWNER_CACHE[id] = o;
+    box.innerHTML = `
+      <div class="owner-card">
+        <div class="oc-head">🏛️ Claimed throne — <b>${esc(o.business_name)}</b></div>
+        ${o.owner_note?`<p class="oc-note">"${esc(o.owner_note)}"</p>`:""}
+        <div class="oc-meta">
+          ${o.hours?`<span>🕐 ${esc(o.hours)}</span>`:""}
+          ${o.access_note?`<span>🚪 ${esc(o.access_note)}</span>`:""}
+        </div>
+      </div>`;
+  }catch(e){}
 }
 async function loadVerdicts(id){
   try{
@@ -1105,8 +1135,8 @@ async function loadMyKarma(){
 function setAuthUI(session){
   const was = loggedIn;
   loggedIn = !!session;
-  if(loggedIn && !was){ loadMyReviews(); loadMyKarma(); }
-  if(!loggedIn && was){ MYREV = {}; MYK = null; if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
+  if(loggedIn && !was){ loadMyReviews(); loadMyKarma(); loadOwnerships(); }
+  if(!loggedIn && was){ MYREV = {}; MYK = null; OWNED = new Set(); if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
   const u = session && session.user;
   const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
   AUTH_NAME = name || "anon";
@@ -1299,6 +1329,73 @@ async function openLeaderboard(){
       </div>`;
     }).join("")}
     <p class="demo-note">Top 20 · usernames only, dignity optional</p>`);
+}
+
+/* ---- 🏛️ claim your throne ---- */
+let OWNED = new Set();
+async function loadOwnerships(){
+  try{
+    const {data} = await supa.rpc("my_ownerships");
+    OWNED = new Set((data||[]).map(r=>r.bathroom_id));
+  }catch(e){}
+}
+async function openClaim(id){
+  if(!loggedIn){ openAuth("email","Claiming a throne needs a real account — glory has paperwork."); return; }
+  const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
+  let st = null;
+  try{ const {data} = await supa.rpc("my_claim",{p_bathroom_id:id}); st = data; }catch(e){}
+  if(st && st.startsWith("pending")){
+    const code = st.split("|")[1]||"";
+    openModal(`
+      <h2>Claim pending ⏳</h2>
+      <p class="m-sub">We're reviewing your claim for <b>${esc(b.name)}</b>.</p>
+      <div class="mot yes">Your verification code: <b style="letter-spacing:.2em">${esc(code)}</b></div>
+      <p class="m-sub" style="margin-top:.8rem">Reminder: write that code on a piece of paper, photograph it <b>inside the bathroom</b>, and upload it to this throne with the ＋photo button. That's how we know it's really yours.</p>`);
+    return;
+  }
+  openModal(`
+    <h2>Claim ${esc(b.name)} 🏛️</h2>
+    <p class="m-sub">For the business behind the throne: a verified badge, your own note on the card, official photos and practical info. Free during the beta.</p>
+    <div class="m-row"><label>Business name</label><input id="clBiz" placeholder="e.g. Bar Manolo"></div>
+    <div class="m-row"><label>Contact email</label><input id="clEmail" placeholder="you@barmanolo.com"></div>
+    <div class="m-row"><label>Anything we should know? <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional)</span></label><input id="clMsg" maxlength="300" placeholder="e.g. I'm the owner since 2009"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="submitClaim(${id})">Claim this throne</button>
+    <p class="demo-note">We verify every claim. Rankings and reviews are never for sale.</p>`);
+}
+async function submitClaim(id){
+  const biz=$("clBiz").value.trim(), email=$("clEmail").value.trim(), msg=$("clMsg").value.trim();
+  if(biz.length<2){toast("Business name, please.");return}
+  if(!email.includes("@")){toast("A real contact email, please.");return}
+  const {data,error} = await supa.rpc("claim_throne",{p_bathroom_id:id,p_business:biz,p_email:email,p_message:msg||null});
+  if(error){toast("😬 "+error.message);return}
+  openModal(`
+    <h2>Almost yours 📸</h2>
+    <p class="m-sub">One physical proof and we're done:</p>
+    <div class="mot yes" style="display:block">
+      1. Write this code on paper: <b style="letter-spacing:.25em;font-size:1.05rem">${esc(data)}</b><br>
+      2. Photograph it <b>inside the bathroom</b><br>
+      3. Upload it to this throne with the ＋photo button
+    </div>
+    <p class="m-sub" style="margin-top:.8rem">We review claims within a few days. You'll see the 🏛️ badge appear when approved.</p>
+    <button class="btn btn-ink" style="width:100%" onclick="closeModal()">Got it</button>`);
+}
+function openOwnerEdit(id){
+  const o = OWNER_CACHE[id] || {};
+  const b = BATHROOMS.find(x=>x.id===id);
+  openModal(`
+    <h2>Your card at ${esc(b?b.name:"")}</h2>
+    <p class="m-sub">What desperate strangers will read about your throne.</p>
+    <div class="m-row"><label>Your note</label><input id="ocNote" maxlength="300" value="${esc(o.owner_note||"")}" placeholder="e.g. Double-ply paper. Lavender. Be nice."></div>
+    <div class="m-row"><label>Hours</label><input id="ocHours" maxlength="120" value="${esc(o.hours||"")}" placeholder="e.g. Mon-Sat 8:00-23:00"></div>
+    <div class="m-row"><label>Access</label><input id="ocAccess" maxlength="160" value="${esc(o.access_note||"")}" placeholder="e.g. Customers only — a coffee is 1,40€"></div>
+    <button class="btn btn-ink" style="width:100%" onclick="saveOwnerCard(${id})">Save card</button>`);
+}
+async function saveOwnerCard(id){
+  const {error} = await supa.rpc("owner_update_throne",{
+    p_bathroom_id:id, p_note:$("ocNote").value.trim()||null,
+    p_hours:$("ocHours").value.trim()||null, p_access:$("ocAccess").value.trim()||null});
+  if(error){toast("😬 "+error.message);return}
+  closeModal(); loadOwner(id); toast("🏛️ Card updated. Your throne looks sharp.");
 }
 
 /* ---- about ---- */

@@ -101,6 +101,7 @@ button{font-family:inherit;cursor:pointer}
       <p class="sub" id="stats">—</p>
       <input id="q" placeholder="Search name or address…" oninput="renderList()">
       <button class="btn btn-ink" id="auditBtn" style="width:100%;margin-top:.6rem" onclick="toggleAudit()">🔍 Audit all addresses vs pins</button>
+      <button class="btn btn-ink" id="claimsBtn" style="width:100%;margin-top:.45rem;background:var(--oro)" onclick="toggleClaims()">📋 Claims</button>
     </div>
     <div class="rows" id="rows"></div>
   </div>
@@ -114,6 +115,7 @@ button{font-family:inherit;cursor:pointer}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
 const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3duYWV3Ymtha2pnZW1qdGljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MDYxMzEsImV4cCI6MjA5OTQ4MjEzMX0.pG9WqTRiIdxOtuRa0qyqRn-8KZr-3Sb1JmWF76L0HoA";
@@ -313,6 +315,82 @@ async function toggleAudit(){
 }
 $("auditBtn").addEventListener("dblclick",()=>{ AUD={}; saveAud(); renderList(); updateStats(); toast("Audit results cleared."); });
 
+/* ---------- claims queue ---------- */
+let claimsMode = false;
+async function toggleClaims(){
+  if(claimsMode){ claimsMode=false; $("claimsBtn").textContent="📋 Claims"; renderList(); return; }
+  const {data,error} = await supa.rpc("admin_list_claims");
+  if(error){ toast("😬 "+error.message); return; }
+  claimsMode = true;
+  const pend = data.filter(c=>c.status==="pending").length;
+  $("claimsBtn").textContent = "← Back to thrones";
+  $("stats").textContent = `${data.length} claims · ${pend} pending`;
+  $("rows").innerHTML = data.map(c=>`
+    <div class="rowi" style="cursor:default;display:block">
+      <div style="display:flex;justify-content:space-between;gap:.6rem;align-items:center">
+        <div>
+          <div class="n">${esc(c.business_name)} → #${c.bathroom_id} ${esc(c.bathroom_name)}</div>
+          <div class="a">${esc(c.contact_email)} · code <b>${esc(c.photo_code)}</b> · ${new Date(c.created_at).toLocaleDateString()}</div>
+          ${c.message?`<div class="a" style="font-style:italic">"${esc(c.message)}"</div>`:""}
+        </div>
+        ${c.status==="pending"
+          ? `<span style="display:flex;gap:.35rem;flex-shrink:0">
+              <button class="btn btn-ink" style="padding:.4rem .7rem;font-size:.62rem" onclick="decideClaim(${c.id},true)">✓</button>
+              <button class="btn btn-danger" style="padding:.4rem .7rem;font-size:.62rem" onclick="decideClaim(${c.id},false)">✗</button>
+             </span>`
+          : `<span class="tag ${c.status==="approved"?"ok":"far"}">${esc(c.status)}</span>`}
+      </div>
+      <div class="a" style="margin-top:.3rem">Check the throne's gallery for a photo of the code <b>${esc(c.photo_code)}</b> before approving → <a href="index.html?throne=${c.bathroom_id}" target="_blank" style="color:var(--acento)">open throne ↗</a></div>
+    </div>`).join("") || '<div class="rowi">No claims yet. The empire awaits its first landlord.</div>';
+}
+async function decideClaim(id, approve){
+  if(!confirm(approve ? "Approve this claim? The 🏛️ badge goes live immediately." : "Reject this claim?")) return;
+  const {error} = await supa.rpc("admin_decide_claim",{p_claim_id:id,p_approve:approve});
+  if(error){ toast("😬 "+error.message); return; }
+  toast(approve ? "🏛️ Approved. Long live the landlord." : "Claim rejected.");
+  claimsMode = false; toggleClaims();
+}
+
+/* ---------- QR sticker ---------- */
+function stickerQR(){
+  const r = ROWS.find(x=>x.id===sel);
+  if(!r){ toast("Select a throne first."); return; }
+  const url = `https://danielramirezopisso.github.io/hurryapp-web/?throne=${r.id}`;
+  const qr = qrcode(0,"M"); qr.addData(url); qr.make();
+  const qrSvg = qr.createSvgTag({cellSize:5, margin:0, scalable:true});
+  const w = window.open("","_blank","width=460,height=740");
+  w.document.write(`<!DOCTYPE html><html><head><title>Sticker · ${r.name}</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+  <style>
+    body{margin:0;font-family:'DM Sans',sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;gap:14px;padding:20px}
+    .sticker{width:105mm;height:148mm;background:#F8F5EF;color:#26241F;border-radius:14px;
+      display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+      padding:12mm 10mm;box-sizing:border-box;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+    h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:26px;margin:0}
+    h1 i{font-style:italic;color:#C75146}
+    .tag{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#C75146;margin-top:2mm}
+    .qr{width:58mm;height:58mm;background:#fff;padding:5mm;border-radius:10px;box-sizing:border-box}
+    .qr svg{width:100%;height:100%}
+    .name{font-family:'DM Serif Display',serif;font-size:17px;margin:0}
+    .cta{font-size:12px;line-height:1.5;opacity:.8;margin:0}
+    .claim{font-size:10px;opacity:.55;margin:0}
+    .btn{background:#26241F;color:#F8F5EF;border:none;border-radius:999px;padding:12px 26px;font-weight:800;font-size:13px;cursor:pointer}
+    @media print{ body{background:none;padding:0} .btn{display:none} .sticker{box-shadow:none;border-radius:0} }
+  </style></head><body>
+  <div class="sticker">
+    <div><h1>Hurry<i>App</i> 🧻</h1><div class="tag">Rate this throne</div></div>
+    <div class="qr">${qrSvg}</div>
+    <div>
+      <p class="name">${r.name.replace(/</g,"&lt;")}</p>
+      <p class="cta">Scan · judge the throne · save the next desperate soul</p>
+      <p class="claim">Own this place? Claim your throne inside the app 🏛️</p>
+    </div>
+  </div>
+  <button class="btn" onclick="window.print()">🖨️ Print</button>
+  </body></html>`);
+  w.document.close();
+}
+
 /* ---------- editor ---------- */
 function select(id){
   sel = id; renderList();
@@ -335,6 +413,7 @@ function select(id){
       <button onclick="tFlip('lng')">± lng</button>
       <button onclick="tGeocode()">📍 Geocode address</button>
       <button onclick="tUseSuggestion()" id="tSug" style="display:none">✨ Use audit suggestion</button>
+      <button onclick="stickerQR()">🏷️ Sticker QR</button>
       <button onclick="tReset()">↩ Original</button>
     </div>
     <div class="actions">
