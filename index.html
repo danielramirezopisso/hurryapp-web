@@ -193,6 +193,18 @@ button{font-family:inherit;cursor:pointer}
 .claim-perks div{display:flex;gap:.55rem;align-items:baseline;font-size:.78rem;line-height:1.45}
 .claim-perks div span{flex-shrink:0;font-size:.95rem}
 .claim-perks b{font-weight:700}
+.cluster-pin{
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;border-radius:50%;
+  color:#fff;font-weight:800;font-family:'DM Sans',sans-serif;
+  border:2.5px solid #fff;box-shadow:0 4px 14px rgba(38,36,31,.35);
+  transition:transform .15s;
+}
+.cluster-pin:hover{transform:scale(1.08)}
+.cluster-pin.g{background:var(--ok)}
+.cluster-pin.y{background:var(--meh)}
+.cluster-pin.r{background:var(--bad)}
+.cluster-pin.u{background:#8B857A}
 .modal.wide{max-width:760px}
 .mk-section{font-family:'DM Serif Display',serif;font-size:1.15rem;margin:1.3rem 0 .6rem;display:flex;align-items:center;gap:.5rem}
 .mk-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
@@ -412,6 +424,7 @@ button{font-family:inherit;cursor:pointer}
 <div id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
@@ -491,7 +504,7 @@ async function refetchThrone(id){
 }
 
 /* ================= STATE ================= */
-let map, markers = {}, selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
+let map, markers = {}, clusterGroup = null, selectedId = null, loggedIn = false, addMode = false, routeLine = null, supa = null;
 let FLT = {score:null, paper:false, handi:false, baby:false};
 let MYREV = {}; // my reviews, keyed by bathroom_id
 async function loadMyReviews(){
@@ -548,6 +561,24 @@ function initMap(){
   L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
     .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
   drawMarkers();
+  clusterGroup = L.markerClusterGroup({
+    showCoverageOnHover:false,
+    maxClusterRadius:48,
+    spiderfyOnMaxZoom:true,
+    disableClusteringAtZoom:16,
+    iconCreateFunction:cluster=>{
+      const kids = cluster.getAllChildMarkers();
+      const scored = kids.map(k=>k.options.score).filter(v=>v!=null);
+      const avg = scored.length ? scored.reduce((a,b)=>a+b,0)/scored.length : null;
+      const cls = avg==null ? "u" : avg>=4 ? "g" : avg>=2.5 ? "y" : "r";
+      const n = cluster.getChildCount();
+      const size = n>=50 ? 46 : n>=15 ? 40 : 34;
+      return L.divIcon({
+        html:`<div class="cluster-pin ${cls}" style="font-size:${n>=50?'.85rem':'.78rem'}">${n}</div>`,
+        className:"", iconSize:[size,size], iconAnchor:[size/2,size/2]
+      });
+    }
+  }).addTo(map);
   map.on("click", e=>{ if(addMode){ exitAddMode(); openAddForm(e.latlng); } });
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
@@ -576,12 +607,13 @@ function syncChips(){
   });
 }
 function drawMarkers(){
-  Object.values(markers).forEach(m=>map.removeLayer(m));
+  clusterGroup.clearLayers();
   markers = {};
   BATHROOMS.filter(passesFilter).forEach(b=>{
-    const m = L.marker([b.lat,b.lng],{icon:markerIcon(b,b.id===selectedId)}).addTo(map);
+    const m = L.marker([b.lat,b.lng],{icon:markerIcon(b,b.id===selectedId), score:b.score});
     m.on("click",()=>openDetail(b.id));
     markers[b.id]=m;
+    clusterGroup.addLayer(m);
   });
 }
 
