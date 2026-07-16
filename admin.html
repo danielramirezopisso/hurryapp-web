@@ -318,37 +318,32 @@ $("auditBtn").addEventListener("dblclick",()=>{ AUD={}; saveAud(); renderList();
 /* ---------- claims queue ---------- */
 let claimsMode = false;
 async function toggleClaims(){
-  if(claimsMode){ claimsMode=false; $("claimsBtn").textContent="📋 Claims"; renderList(); return; }
+  if(claimsMode){ claimsMode=false; $("claimsBtn").textContent="📋 Claims"; renderList(); updateStats(); return; }
   const {data,error} = await supa.rpc("admin_list_claims");
   if(error){ toast("😬 "+error.message); return; }
   claimsMode = true;
-  const pend = data.filter(c=>c.status==="pending").length;
   $("claimsBtn").textContent = "← Back to thrones";
-  $("stats").textContent = `${data.length} claims · ${pend} pending`;
+  $("stats").textContent = `${data.length} claims (auto-approved in beta) — revoke the fishy ones`;
   $("rows").innerHTML = data.map(c=>`
     <div class="rowi" style="cursor:default;display:block">
       <div style="display:flex;justify-content:space-between;gap:.6rem;align-items:center">
         <div>
           <div class="n">${esc(c.business_name)} → #${c.bathroom_id} ${esc(c.bathroom_name)}</div>
-          <div class="a">${esc(c.contact_email)} · code <b>${esc(c.photo_code)}</b> · ${new Date(c.created_at).toLocaleDateString()}</div>
+          <div class="a">${esc(c.contact_email)} · ${new Date(c.created_at).toLocaleDateString()} · ${esc(c.status)}</div>
           ${c.message?`<div class="a" style="font-style:italic">"${esc(c.message)}"</div>`:""}
         </div>
-        ${c.status==="pending"
-          ? `<span style="display:flex;gap:.35rem;flex-shrink:0">
-              <button class="btn btn-ink" style="padding:.4rem .7rem;font-size:.62rem" onclick="decideClaim(${c.id},true)">✓</button>
-              <button class="btn btn-danger" style="padding:.4rem .7rem;font-size:.62rem" onclick="decideClaim(${c.id},false)">✗</button>
-             </span>`
-          : `<span class="tag ${c.status==="approved"?"ok":"far"}">${esc(c.status)}</span>`}
+        <span style="display:flex;gap:.35rem;flex-shrink:0">
+          <a href="index.html?throne=${c.bathroom_id}" target="_blank" class="tag ok" style="text-decoration:none">view ↗</a>
+          <button class="btn btn-danger" style="padding:.4rem .7rem;font-size:.62rem" onclick="revokeOwner(${c.bathroom_id})">Revoke</button>
+        </span>
       </div>
-      <div class="a" style="margin-top:.3rem">Check the throne's gallery for a photo of the code <b>${esc(c.photo_code)}</b> before approving → <a href="index.html?throne=${c.bathroom_id}" target="_blank" style="color:var(--acento)">open throne ↗</a></div>
     </div>`).join("") || '<div class="rowi">No claims yet. The empire awaits its first landlord.</div>';
 }
-async function decideClaim(id, approve){
-  if(!confirm(approve ? "Approve this claim? The 🏛️ badge goes live immediately." : "Reject this claim?")) return;
-  const {error} = await supa.rpc("admin_decide_claim",{p_claim_id:id,p_approve:approve});
+async function revokeOwner(bathroomId){
+  if(!confirm("Revoke this ownership? The 🏛️ badge disappears immediately.")) return;
+  const {error} = await supa.rpc("admin_revoke_owner",{p_bathroom_id:bathroomId});
   if(error){ toast("😬 "+error.message); return; }
-  toast(approve ? "🏛️ Approved. Long live the landlord." : "Claim rejected.");
-  claimsMode = false; toggleClaims();
+  toast("Ownership revoked. The people rule again.");
 }
 
 /* ---------- QR sticker ---------- */

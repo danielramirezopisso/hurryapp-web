@@ -188,6 +188,11 @@ button{font-family:inherit;cursor:pointer}
 .owner-card .oc-head{font-size:.74rem;font-weight:700}
 .owner-card .oc-note{font-size:.78rem;font-style:italic;margin:.35rem 0 .1rem;opacity:.85}
 .owner-card .oc-meta{display:flex;gap:.9rem;flex-wrap:wrap;font-size:.68rem;opacity:.65;margin-top:.3rem}
+.owner-card .oc-offer{margin-top:.45rem;background:rgba(201,162,39,.14);border-radius:8px;padding:.35rem .6rem;font-size:.74rem;font-weight:700;color:#8A6D12}
+.claim-perks{display:flex;flex-direction:column;gap:.45rem;margin:.7rem 0 .9rem}
+.claim-perks div{display:flex;gap:.55rem;align-items:baseline;font-size:.78rem;line-height:1.45}
+.claim-perks div span{flex-shrink:0;font-size:.95rem}
+.claim-perks b{font-weight:700}
 .award{
   display:flex;align-items:center;gap:.85rem;padding:.8rem .2rem;border-top:1px solid var(--line);
   cursor:pointer;transition:background .15s;
@@ -394,6 +399,7 @@ button{font-family:inherit;cursor:pointer}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
 /* ================= LIVE DATA — Supabase ================= */
 const SUPABASE_URL = "https://xsgwnaewbkakjgemjtic.supabase.co";
@@ -634,13 +640,16 @@ function openDetail(id){
         <button class="btn btn-ghost btn-share" onclick="shareThrone(${b.id})" aria-label="Share this throne" title="Share">↗</button>
       </div>
       ${OWNED.has(b.id)
-        ? `<button class="back-list" style="width:100%;text-align:center;margin-top:.4rem" onclick="openOwnerEdit(${b.id})">🏛️ Owner: edit your card</button>`
+        ? `<button class="btn btn-ghost" style="width:100%;margin-top:.5rem;border-color:var(--oro);color:#8A6D12" onclick="openOwnerDash(${b.id})">🏛️ Owner dashboard</button>`
         : `<button class="back-list" style="width:100%;text-align:center;margin-top:.4rem;opacity:.55" onclick="openClaim(${b.id})">🏛️ Your business? Claim this throne</button>`}
     </div>`;
   showSheet();
-  if(b.photos>0) loadPhotos(b.id);
   if(b.n>0) loadVerdicts(b.id);
-  loadOwner(b.id);
+  loadOwner(b.id).then(()=>{ if(b.photos>0) loadPhotos(b.id); });
+  try{
+    const k = "hv_"+b.id;
+    if(!sessionStorage.getItem(k)){ sessionStorage.setItem(k,"1"); supa.rpc("log_visit",{p_bathroom_id:b.id}); }
+  }catch(e){}
 }
 const OWNER_CACHE = {};
 async function loadOwner(id){
@@ -660,6 +669,7 @@ async function loadOwner(id){
           ${o.hours?`<span>🕐 ${esc(o.hours)}</span>`:""}
           ${o.access_note?`<span>🚪 ${esc(o.access_note)}</span>`:""}
         </div>
+        ${o.offer?`<div class="oc-offer">🎁 ${esc(o.offer)}</div>`:""}
       </div>`;
   }catch(e){}
 }
@@ -696,10 +706,13 @@ async function loadPhotos(id){
     if(!Array.isArray(rows) || !rows.length){
       strip.innerHTML = '<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'+`<button class="ph-add" onclick="pickPhotos(${id})">＋<span>photo</span></button>`; return;
     }
+    const cover = OWNER_CACHE[id] && OWNER_CACHE[id].cover_file;
+    if(cover){ rows.sort((a,b)=>(b.file_name===cover)-(a.file_name===cover)); }
     LB.list = rows.map(x=>photoURL(x.file_name));
+    LB.coverIdx = cover ? rows.findIndex(x=>x.file_name===cover) : -1;
     const addTile = `<button class="ph-add" onclick="pickPhotos(${id})" title="Add a photo">＋<span>photo</span></button>`;
     strip.innerHTML = LB.list.map((u,i)=>
-      `<img src="${u}" loading="lazy" alt="Throne photo" onclick="lbOpen(${i})" onerror="LB.dead.add(${i});this.remove()">`
+      `<span style="position:relative;flex-shrink:0">${i===LB.coverIdx?'<span style="position:absolute;top:4px;left:4px;font-size:.7rem;z-index:2">⭐</span>':""}<img src="${u}" loading="lazy" alt="Throne photo" onclick="lbOpen(${i})" onerror="LB.dead.add(${i});this.remove()"></span>`
     ).join("") + addTile;
     // if every img 404s (orphan DB rows), fall back to the empty message
     setTimeout(()=>{ if(strip && !strip.querySelector("img") && selectedId===id) strip.innerHTML='<div class="ph">📷 No photos yet. Be the first paparazzi.</div>'+`<button class="ph-add" onclick="pickPhotos(${id})">＋<span>photo</span></button>`; }, 4000);
@@ -1331,7 +1344,7 @@ async function openLeaderboard(){
     <p class="demo-note">Top 20 · usernames only, dignity optional</p>`);
 }
 
-/* ---- 🏛️ claim your throne ---- */
+/* ---- 🏛️ claim your throne (v2: instant, free beta) ---- */
 let OWNED = new Set();
 async function loadOwnerships(){
   try{
@@ -1342,42 +1355,93 @@ async function loadOwnerships(){
 async function openClaim(id){
   if(!loggedIn){ openAuth("email","Claiming a throne needs a real account — glory has paperwork."); return; }
   const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
-  let st = null;
-  try{ const {data} = await supa.rpc("my_claim",{p_bathroom_id:id}); st = data; }catch(e){}
-  if(st && st.startsWith("pending")){
-    const code = st.split("|")[1]||"";
-    openModal(`
-      <h2>Claim pending ⏳</h2>
-      <p class="m-sub">We're reviewing your claim for <b>${esc(b.name)}</b>.</p>
-      <div class="mot yes">Your verification code: <b style="letter-spacing:.2em">${esc(code)}</b></div>
-      <p class="m-sub" style="margin-top:.8rem">Reminder: write that code on a piece of paper, photograph it <b>inside the bathroom</b>, and upload it to this throne with the ＋photo button. That's how we know it's really yours.</p>`);
-    return;
-  }
   openModal(`
     <h2>Claim ${esc(b.name)} 🏛️</h2>
-    <p class="m-sub">For the business behind the throne: a verified badge, your own note on the card, official photos and practical info. Free during the beta.</p>
-    <div class="m-row"><label>Business name</label><input id="clBiz" placeholder="e.g. Bar Manolo"></div>
+    <p class="m-sub">Run the business behind this throne? Make it officially yours.</p>
+    <div class="claim-perks">
+      <div><span>🏛️</span><b>Verified badge</b> — "Claimed throne" with your business name, front and center</div>
+      <div><span>✏️</span><b>Your own card</b> — your note, opening hours and access rules, in your words</div>
+      <div><span>🎁</span><b>Offers</b> — a deal shown to every desperate visitor ("show the app → coffee 1€")</div>
+      <div><span>⭐</span><b>Cover photo</b> — you decide which picture greets the world first</div>
+      <div><span>📊</span><b>Private dashboard</b> — visits, votes, and your rank in the community</div>
+      <div><span>🏷️</span><b>QR sticker</b> — print your own "Rate this throne" sign for the door</div>
+    </div>
+    <div class="mot yes" style="display:block">🎉 <b>Free during the beta.</b> In the future it will be a small subscription (~2€/month via Stripe) — early claimers will be treated kindly.</div>
+    <div class="m-row" style="margin-top:.8rem"><label>Business name</label><input id="clBiz" placeholder="e.g. Bar Manolo"></div>
     <div class="m-row"><label>Contact email</label><input id="clEmail" placeholder="you@barmanolo.com"></div>
     <div class="m-row"><label>Anything we should know? <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional)</span></label><input id="clMsg" maxlength="300" placeholder="e.g. I'm the owner since 2009"></div>
-    <button class="btn btn-ink" style="width:100%" onclick="submitClaim(${id})">Claim this throne</button>
-    <p class="demo-note">We verify every claim. Rankings and reviews are never for sale.</p>`);
+    <button class="btn btn-ink" style="width:100%" onclick="submitClaim(${id})">Claim it now — free</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:.5rem;opacity:.5" onclick="toast('💳 Stripe checkout arrives with v2 — for now, claiming is free.')">💳 Pay with Stripe (coming soon)</button>
+    <p class="demo-note">Rankings and reviews are never for sale. Fake claims get revoked.</p>`);
 }
 async function submitClaim(id){
   const biz=$("clBiz").value.trim(), email=$("clEmail").value.trim(), msg=$("clMsg").value.trim();
   if(biz.length<2){toast("Business name, please.");return}
   if(!email.includes("@")){toast("A real contact email, please.");return}
-  const {data,error} = await supa.rpc("claim_throne",{p_bathroom_id:id,p_business:biz,p_email:email,p_message:msg||null});
+  const {error} = await supa.rpc("claim_throne",{p_bathroom_id:id,p_business:biz,p_email:email,p_message:msg||null});
   if(error){toast("😬 "+error.message);return}
+  OWNED.add(id);
+  closeModal();
+  await loadOwner(id);
+  openDetail(id);
+  toast("🏛️ The throne is yours. Long live the landlord.");
+  setTimeout(()=>openOwnerDash(id), 600);
+}
+
+/* ---- 🏛️ owner dashboard ---- */
+async function openOwnerDash(id){
+  const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
+  openModal(`<h2>🏛️ ${esc(b.name)}</h2><p class="m-sub">Fetching your empire's numbers…</p>`);
+  const {data,error} = await supa.rpc("owner_dashboard",{p_bathroom_id:id});
+  if(error){ openModal(`<h2>🏛️ Dashboard</h2><p class="m-sub">😬 ${esc(error.message)}</p>`); return; }
+  const D = data;
+  const cover = OWNER_CACHE[id] && OWNER_CACHE[id].cover_file;
+  const tile = (num,label)=>`<div style="flex:1;background:var(--porcelana);border:1px solid var(--line);border-radius:11px;padding:.6rem .3rem;text-align:center;min-width:70px">
+      <div style="font-family:'DM Serif Display',serif;font-size:1.25rem;line-height:1">${num??"—"}</div>
+      <div style="font-size:.54rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;opacity:.55;margin-top:.2rem">${label}</div></div>`;
+  const motMini = m => m===1?"💩":m===2?"🤔":m===3?"🙅":"";
   openModal(`
-    <h2>Almost yours 📸</h2>
-    <p class="m-sub">One physical proof and we're done:</p>
-    <div class="mot yes" style="display:block">
-      1. Write this code on paper: <b style="letter-spacing:.25em;font-size:1.05rem">${esc(data)}</b><br>
-      2. Photograph it <b>inside the bathroom</b><br>
-      3. Upload it to this throne with the ＋photo button
+    <h2>🏛️ ${esc(b.name)}</h2>
+    <p class="m-sub">Your throne, your numbers. Landlord since ${OWNER_CACHE[id]?new Date(OWNER_CACHE[id].since).toLocaleDateString("en-GB",{month:"short",year:"numeric"}):"today"}.</p>
+    <div style="display:flex;gap:.45rem;flex-wrap:wrap">
+      ${tile(D.visits_30d,"visits 30d")}${tile(D.visits_total,"visits ever*")}
+      ${tile(D.reviews_30d,"votes 30d")}${tile(D.reviews_total,"votes ever")}
     </div>
-    <p class="m-sub" style="margin-top:.8rem">We review claims within a few days. You'll see the 🏛️ badge appear when approved.</p>
-    <button class="btn btn-ink" style="width:100%" onclick="closeModal()">Got it</button>`);
+    <div style="display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.45rem">
+      ${tile(D.avg_score??"—","avg rolls")}
+      ${tile(D.rank_pos?`#${D.rank_pos}`:"—","community rank")}
+      ${tile(D.rank_total,"rated thrones")}
+    </div>
+    <p style="font-size:.6rem;opacity:.45;margin:.4rem 0 .9rem">*visit tracking starts today — history builds from here</p>
+    <button class="btn btn-ink" style="width:100%" onclick="openOwnerEdit(${id})">✏️ Edit your public card & offer</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:.5rem" onclick="ownerSticker(${id})">🏷️ Print your QR sticker</button>
+    <button class="btn btn-ghost" style="width:100%;margin-top:.5rem" onclick="openArtisans()">🔨 Improve your bathroom — meet the artisans</button>
+
+    <div class="a-title" style="font-size:.64rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acento);margin:1.2rem 0 .5rem">📸 Photos · ${D.photos.length} — tap ⭐ to set the cover</div>
+    <div class="d-photos" style="margin:.2rem 0 .6rem">
+      ${D.photos.map(ph=>`
+        <span style="position:relative;flex-shrink:0">
+          <img src="${photoURL(ph.file)}" loading="lazy" style="height:84px;border-radius:9px" onerror="this.parentNode.remove()">
+          <button onclick="setCover(${id},'${ph.file.replace(/'/g,"%27")}')" title="Set as cover"
+            style="position:absolute;top:3px;left:3px;border:none;background:rgba(38,36,31,.55);color:#fff;border-radius:6px;font-size:.7rem;padding:.1rem .25rem;cursor:pointer">${cover===ph.file?"⭐":"☆"}</button>
+          <span style="position:absolute;bottom:3px;left:3px;right:3px;background:rgba(38,36,31,.55);color:#fff;font-size:.52rem;border-radius:5px;padding:.08rem .25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${esc(ph.username)}</span>
+        </span>`).join("") || '<div class="ph">📷 No photos yet</div>'}
+    </div>
+
+    <div class="a-title" style="font-size:.64rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--acento);margin:1rem 0 .5rem">📜 All verdicts · ${D.reviews.length}</div>
+    ${D.reviews.map(v=>`
+      <div class="d-review" style="margin-bottom:.5rem">
+        ${v.review_text?`<em>"${esc(v.review_text)}"</em>`:`<em style="opacity:.5">(rolls only, no words)</em>`}
+        <span class="who">@${esc(v.username)} · ${v.score} 🧻 ${motMini(v.mot)} · ${new Date(v.on_date).toLocaleDateString("en-GB",{month:"short",year:"numeric"})}</span>
+      </div>`).join("") || '<p class="m-sub">No verdicts yet.</p>'}
+    <p class="demo-note" style="margin-top:.8rem">🎁 Offers appear on your public card — set one in "Edit your card". Happy hour for bladders: proven strategy.</p>`);
+}
+async function setCover(id, file){
+  const {error} = await supa.rpc("owner_set_cover",{p_bathroom_id:id, p_file:decodeURIComponent(file.replace(/%27/g,"'"))});
+  if(error){toast("😬 "+error.message);return}
+  if(OWNER_CACHE[id]) OWNER_CACHE[id].cover_file = decodeURIComponent(file.replace(/%27/g,"'"));
+  toast("⭐ Cover set. First impressions matter.");
+  openOwnerDash(id);
 }
 function openOwnerEdit(id){
   const o = OWNER_CACHE[id] || {};
@@ -1388,14 +1452,69 @@ function openOwnerEdit(id){
     <div class="m-row"><label>Your note</label><input id="ocNote" maxlength="300" value="${esc(o.owner_note||"")}" placeholder="e.g. Double-ply paper. Lavender. Be nice."></div>
     <div class="m-row"><label>Hours</label><input id="ocHours" maxlength="120" value="${esc(o.hours||"")}" placeholder="e.g. Mon-Sat 8:00-23:00"></div>
     <div class="m-row"><label>Access</label><input id="ocAccess" maxlength="160" value="${esc(o.access_note||"")}" placeholder="e.g. Customers only — a coffee is 1,40€"></div>
+    <div class="m-row"><label>🎁 Offer for HurryApp users <span style="opacity:.5;text-transform:none;letter-spacing:0">(optional)</span></label><input id="ocOffer" maxlength="200" value="${esc(o.offer||"")}" placeholder="e.g. Show the app → coffee at 1€"></div>
     <button class="btn btn-ink" style="width:100%" onclick="saveOwnerCard(${id})">Save card</button>`);
 }
 async function saveOwnerCard(id){
   const {error} = await supa.rpc("owner_update_throne",{
     p_bathroom_id:id, p_note:$("ocNote").value.trim()||null,
-    p_hours:$("ocHours").value.trim()||null, p_access:$("ocAccess").value.trim()||null});
+    p_hours:$("ocHours").value.trim()||null, p_access:$("ocAccess").value.trim()||null,
+    p_offer:$("ocOffer").value.trim()||null});
   if(error){toast("😬 "+error.message);return}
   closeModal(); loadOwner(id); toast("🏛️ Card updated. Your throne looks sharp.");
+}
+function ownerSticker(id){
+  const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
+  const url = `${location.origin}${location.pathname}?throne=${id}`;
+  const qr = qrcode(0,"M"); qr.addData(url); qr.make();
+  const qrSvg = qr.createSvgTag({cellSize:5, margin:0, scalable:true});
+  const w = window.open("","_blank","width=460,height=740");
+  w.document.write(`<!DOCTYPE html><html><head><title>Sticker · ${b.name.replace(/</g,"&lt;")}</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+  <style>
+    body{margin:0;font-family:'DM Sans',sans-serif;background:#ddd;display:flex;flex-direction:column;align-items:center;gap:14px;padding:20px}
+    .sticker{width:105mm;height:148mm;background:#F8F5EF;color:#26241F;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:12mm 10mm;box-sizing:border-box;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+    h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:26px;margin:0}
+    h1 i{font-style:italic;color:#C75146}
+    .tag{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:#C75146;margin-top:2mm}
+    .qr{width:58mm;height:58mm;background:#fff;padding:5mm;border-radius:10px;box-sizing:border-box}
+    .qr svg{width:100%;height:100%}
+    .name{font-family:'DM Serif Display',serif;font-size:17px;margin:0}
+    .cta{font-size:12px;line-height:1.5;opacity:.8;margin:0}
+    .btn{background:#26241F;color:#F8F5EF;border:none;border-radius:999px;padding:12px 26px;font-weight:800;font-size:13px;cursor:pointer}
+    @media print{ body{background:none;padding:0} .btn{display:none} .sticker{box-shadow:none;border-radius:0} }
+  </style></head><body>
+  <div class="sticker">
+    <div><h1>Hurry<i>App</i> 🧻</h1><div class="tag">Rate this throne</div></div>
+    <div class="qr">${qrSvg}</div>
+    <div><p class="name">${b.name.replace(/</g,"&lt;")}</p>
+    <p class="cta">Scan · judge the throne · save the next desperate soul</p></div>
+  </div>
+  <button class="btn" onclick="window.print()">🖨️ Print</button></body></html>`);
+  w.document.close();
+}
+
+/* ---- 🔨 artisans marketplace (preview) ---- */
+const ARTISANS = [
+  {n:"Porcelana Studio", city:"Barcelona", tag:"Interiorismo de baños con alma", emoji:"🎨"},
+  {n:"Reformas Trono Exprés", city:"Madrid", tag:"De horror a honor en 5 días", emoji:"⚡"},
+  {n:"Azulejo & Cal", city:"Valencia", tag:"Alicatados artesanos desde 1987", emoji:"🧱"},
+  {n:"LuxLoo Design", city:"Bilbao", tag:"Grifería y luz para tronos serios", emoji:"✨"},
+];
+function openArtisans(){
+  openModal(`
+    <h2>🔨 The Artisans</h2>
+    <p class="m-sub">Your throne deserves better? These people turn bathrooms into destinations.</p>
+    ${ARTISANS.map(a=>`
+      <div class="award" onclick="toast('🔨 Marketplace preview — contact flow arrives with v2.')">
+        <span class="a-emoji">${a.emoji}</span>
+        <div class="a-body">
+          <div class="a-winner">${a.n}</div>
+          <div class="a-sub">${a.tag} · ${a.city}</div>
+        </div>
+        <span class="a-stat" style="font-size:.66rem;opacity:.6">Request<br>quote</span>
+      </div>`).join("")}
+    <p class="demo-note" style="margin-top:.8rem">Are you a contractor or designer? Featured placement here — hola@dkc.es 😉</p>`);
 }
 
 /* ---- about ---- */
