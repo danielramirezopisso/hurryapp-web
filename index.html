@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>HurryApp — Find a throne. Fast.</title>
 <meta name="description" content="The community map of usable bathrooms — rated in 🧻 rolls by people who were there in their darkest hour.">
 <meta name="theme-color" content="#F8F5EF">
@@ -40,7 +40,8 @@
 }
 body.colorblind{ --ok:#4477AA; --meh:#EE7733; --bad:#882255; }
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{position:fixed;inset:0;width:100%}
 body{
   font-family:'DM Sans',sans-serif;font-weight:400;
   background:var(--porcelana);color:var(--ink);overflow:hidden;
@@ -51,7 +52,7 @@ button{font-family:inherit;cursor:pointer}
 :focus-visible{outline:2.5px solid var(--acento);outline-offset:2px}
 
 /* ================= MAP ================= */
-#map{position:fixed;inset:0;z-index:1;height:100svh;height:100dvh}
+#map{position:fixed;inset:0;z-index:1}
 .leaflet-container{background:#EDEAE2;font-family:inherit}
 
 /* ================= TOP BAR ================= */
@@ -111,8 +112,8 @@ button{font-family:inherit;cursor:pointer}
 @keyframes breathe{0%,100%{box-shadow:0 10px 28px rgba(199,81,70,.35)}50%{box-shadow:0 10px 34px rgba(199,81,70,.6)}}
 .panic:hover{background:var(--acento-dark)}
 .panic:active{transform:translateX(-50%) scale(.97)}
-.panic.sheet-open{bottom:calc(46vh + 1rem)}
-@media(min-width:760px){.panic.sheet-open{bottom:max(1.2rem, env(safe-area-inset-bottom))}}
+.panic.sheet-open{opacity:0;visibility:hidden;pointer-events:none}
+@media(min-width:760px){.panic.sheet-open{opacity:1;visibility:visible;pointer-events:auto;bottom:max(1.2rem, env(safe-area-inset-bottom))}}
 
 /* ================= SHEET ================= */
 .sheet{
@@ -618,6 +619,10 @@ function initMap(){
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
   window.addEventListener("orientationchange", ()=>{ setTimeout(()=>map&&map.invalidateSize(),300) });
+  window.addEventListener("pageshow", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
+  if(window.visualViewport) visualViewport.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),120) });
+  setTimeout(()=>map&&map.invalidateSize(), 500);
+  setTimeout(()=>map&&map.invalidateSize(), 1500);
 }
 const markerIcon = (b,sel=false) => L.divIcon({
   html:`<div class="score-pin ${bucket(b.score)} ${sel?"selected":""}"><span>${b.score===null?"?":b.score.toFixed(1)}</span></div>`,
@@ -1173,7 +1178,7 @@ function pickPhotos(id){
 }
 
 /* ---- auth: accounts first (log in / create), anonymous as plan B ---- */
-function openAuth(_step, reason){
+function openAuth(_step, reason, realOnly){
   openModal(`
     <h2>Enter HurryApp</h2>
     <p class="m-sub">${esc(reason||"Your account, your thrones, your legacy.")}</p>
@@ -1185,13 +1190,13 @@ function openAuth(_step, reason){
       <button class="btn btn-ghost" style="flex:1" onclick="createAccount()">Create account</button>
     </div>
     <button class="back-list" style="width:100%;text-align:center;margin-top:.55rem" onclick="recoverPass()">I forgot my password (get a reset email)</button>
-    <div style="display:flex;align-items:center;gap:.7rem;margin:1.1rem 0 .8rem;opacity:.5">
+    ${realOnly?"":`<div style="display:flex;align-items:center;gap:.7rem;margin:1.1rem 0 .8rem;opacity:.5">
       <div style="flex:1;height:1px;background:var(--line)"></div>
       <span style="font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700">In a real hurry? (obviously)</span>
       <div style="flex:1;height:1px;background:var(--line)"></div>
     </div>
     <button class="btn btn-ghost" style="width:100%" onclick="anonLogin()">🧻 Just let me in — no account</button>
-    <p class="demo-note">Anonymous mode lives in this browser only. Accounts travel with you.</p>`);
+    <p class="demo-note">Anonymous mode lives in this browser only. Accounts travel with you.</p>`}`);
   setTimeout(()=>$("fEmail").focus(),100);
 }
 async function founderLogin(){
@@ -1238,7 +1243,7 @@ async function saveNewPassword(){
   if(error){toast("😬 "+error.message);return}
   closeModal(); toast("Password set. Welcome back. 👑");
 }
-let AUTH_NAME = null, MYK = null;
+let AUTH_NAME = null, MYK = null, IS_ANON = false;
 function renderLoginBtn(){
   const emoji = MYK ? rankFor(+MYK.karma).emoji : "🧻";
   $("loginBtn").textContent = loggedIn ? "@"+(AUTH_NAME||"anon")+" "+emoji : "Log in";
@@ -1256,6 +1261,7 @@ function setAuthUI(session){
   if(loggedIn && !was){ loadMyReviews(); loadMyKarma(); loadOwnerships(); }
   if(!loggedIn && was){ MYREV = {}; MYK = null; OWNED = new Set(); if(selectedId!=null && $("sheet").classList.contains("open")) openDetail(selectedId); }
   const u = session && session.user;
+  IS_ANON = !!(u && u.is_anonymous);
   const name = u && (u.user_metadata&&u.user_metadata.username || (u.email? u.email.split("@")[0] : null));
   AUTH_NAME = name || "anon";
   renderLoginBtn();
@@ -1458,7 +1464,8 @@ async function loadOwnerships(){
   }catch(e){}
 }
 async function openClaim(id){
-  if(!loggedIn){ openAuth("email","Claiming a throne needs a real account — glory has paperwork."); return; }
+  if(!loggedIn){ openAuth("email","Claiming a throne needs a real account (with email) — glory has paperwork.", true); return; }
+  if(IS_ANON){ openAuth("email","Anonymous ghosts can't own property 👻 — claims need a real account with an email, so log in or create one.", true); return; }
   const b = BATHROOMS.find(x=>x.id===id); if(!b) return;
   openModal(`
     <h2>Claim ${esc(b.name)} 🏛️</h2>
