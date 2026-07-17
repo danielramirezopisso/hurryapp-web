@@ -6,6 +6,11 @@
 <title>HurryApp — Find a throne. Fast.</title>
 <meta name="description" content="The community map of usable bathrooms — rated in 🧻 rolls by people who were there in their darkest hour.">
 <meta name="theme-color" content="#F8F5EF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="HurryApp">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="HurryApp">
 <meta property="og:title" content="HurryApp — Find a throne. Fast.">
@@ -390,6 +395,7 @@ button{font-family:inherit;cursor:pointer}
 
 <div class="fab-stack">
   <button class="fab-add" onclick="startAdd()" title="Add a throne" aria-label="Add a throne">＋</button>
+  <button class="chip-btn" onclick="locateMe()" title="Find my location">📍 Me</button>
   <button class="chip-btn" onclick="openList()" title="Show the list">☰ Thrones</button>
   <button class="chip-btn" onclick="resetMap()" title="Reset the map">⌖ Recenter</button>
 </div>
@@ -431,6 +437,38 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const MOT_MAP = {1:"yes", 2:"maybe", 3:"no"};         // 1 = "I have shit here" | 2 = "I would" | 3 = "never"
 let YOU = [41.3870, 2.1700];                          // replaced by data centroid + real geolocation
+let YOU_SOURCE = "guess";                              // guess | gps | manual
+let youMarker = null, youAcc = null, locateMode = false;
+function setYou(lat, lng, source, accuracy){
+  YOU = [lat, lng]; YOU_SOURCE = source;
+  if(youMarker) youMarker.setLatLng(YOU);
+  if(youAcc){ map.removeLayer(youAcc); youAcc = null; }
+  if(source==="gps" && accuracy && accuracy < 400){
+    youAcc = L.circle(YOU, {radius:accuracy, color:"#26241F", weight:1, opacity:.25, fillOpacity:.06}).addTo(map);
+  }
+}
+function startWatch(){
+  if(!navigator.geolocation) return;
+  navigator.geolocation.watchPosition(
+    p=>setYou(p.coords.latitude, p.coords.longitude, "gps", p.coords.accuracy),
+    ()=>{}, {enableHighAccuracy:true, maximumAge:15000, timeout:20000});
+}
+function locateMe(){
+  exitAddMode();
+  if(!navigator.geolocation){ enterManualLocate("This browser has no GPS."); return; }
+  toast("📡 Finding you…");
+  navigator.geolocation.getCurrentPosition(p=>{
+    setYou(p.coords.latitude, p.coords.longitude, "gps", p.coords.accuracy);
+    map.flyTo(YOU, 16, {duration:.8});
+    toast(`📍 There you are — ±${Math.round(p.coords.accuracy)} m`);
+  }, err=>{
+    enterManualLocate(err.code===1 ? "GPS permission denied." : "GPS unavailable right now.");
+  }, {enableHighAccuracy:true, timeout:8000, maximumAge:0});
+}
+function enterManualLocate(reason){
+  locateMode = true;
+  toast(`${reason} 👆 Tap the map where you are.`);
+}
 let BATHROOMS = [];
 let nextId = 1000000;
 
@@ -555,8 +593,9 @@ function initMap(){
     attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:20,subdomains:"abcd",
   }).addTo(map);
   L.control.zoom({position:"bottomright"}).addTo(map);
-  L.marker(YOU,{icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
-    .addTo(map).bindTooltip("You — allegedly holding it together",{direction:"top"});
+  youMarker = L.marker(YOU,{draggable:true, icon:L.divIcon({html:'<div style="width:16px;height:16px;border-radius:50%;background:#26241F;border:3px solid #fff;box-shadow:0 0 0 6px rgba(38,36,31,.18)"></div>',iconSize:[16,16],iconAnchor:[8,8]})})
+    .addTo(map).bindTooltip("You — allegedly holding it together (drag me if I'm wrong)",{direction:"top"});
+  youMarker.on("dragend",()=>{ const pp=youMarker.getLatLng(); setYou(pp.lat,pp.lng,"manual"); toast("📍 Location set by hand. Trust yourself."); });
   clusterGroup = L.markerClusterGroup({
     showCoverageOnHover:false,
     maxClusterRadius:48,
@@ -572,7 +611,10 @@ function initMap(){
     }
   }).addTo(map);
   drawMarkers();
-  map.on("click", e=>{ if(addMode){ exitAddMode(); openAddForm(e.latlng); } });
+  map.on("click", e=>{
+    if(addMode){ exitAddMode(); openAddForm(e.latlng); return; }
+    if(locateMode){ locateMode=false; setYou(e.latlng.lat, e.latlng.lng, "manual"); map.flyTo(YOU,16,{duration:.6}); toast("📍 Location set. You exist again."); }
+  });
   // mobile address-bar dance: keep Leaflet sized to the real viewport
   window.addEventListener("resize", ()=>{ setTimeout(()=>map&&map.invalidateSize(),150) });
   window.addEventListener("orientationchange", ()=>{ setTimeout(()=>map&&map.invalidateSize(),300) });
@@ -798,12 +840,33 @@ async function shareThrone(id){
     prompt("Copy your throne link:", url);
   }
 }
-function fakeRoute(id){
+async function fakeRoute(id){
   const b = BATHROOMS.find(x=>x.id===id);
   if(routeLine) map.removeLayer(routeLine);
-  routeLine = L.polyline([YOU,[b.lat,b.lng]],{color:"#C75146",weight:3.5,dashArray:"7 9",opacity:.8}).addTo(map);
-  map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
-  toast(`🏃 ${distLabel(dist(YOU,[b.lat,b.lng]))}. Walk with purpose.`);
+  if(YOU_SOURCE==="guess"){
+    toast("🤔 I don't actually know where you are — tap 📍 Me first (or drag your dot).");
+    routeLine = L.polyline([YOU,[b.lat,b.lng]],{color:"#C75146",weight:3,dashArray:"7 9",opacity:.5}).addTo(map);
+    map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
+    return;
+  }
+  toast("🗺️ Tracing the sacred path…");
+  try{
+    const u = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${YOU[1]},${YOU[0]};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+    const r = await fetch(u);
+    const j = await r.json();
+    if(j.code!=="Ok" || !j.routes || !j.routes.length) throw new Error("no route");
+    const rt = j.routes[0];
+    const coords = rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+    routeLine = L.polyline(coords,{color:"#C75146",weight:4.5,opacity:.9}).addTo(map);
+    map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
+    const mins = Math.max(1, Math.round(rt.duration/60));
+    const m = rt.distance>=1000 ? (rt.distance/1000).toFixed(1)+" km" : Math.round(rt.distance)+" m";
+    toast(`🚶 ${m} · ~${mins} min on foot, corner by corner. Walk fast. Believe.`);
+  }catch(e){
+    routeLine = L.polyline([YOU,[b.lat,b.lng]],{color:"#C75146",weight:3.5,dashArray:"7 9",opacity:.8}).addTo(map);
+    map.fitBounds(routeLine.getBounds(),{padding:[70,70]});
+    toast(`🏃 ${distLabel(dist(YOU,[b.lat,b.lng]))} as the crow flies (router unavailable).`);
+  }
 }
 function resetMap(){
   FLT = {score:null,paper:false,handi:false,baby:false};
@@ -836,7 +899,9 @@ function panic(){
     },900);
   };
   if(navigator.geolocation){
-    navigator.geolocation.getCurrentPosition(p=>run([p.coords.latitude,p.coords.longitude]),()=>run(YOU),{timeout:2500});
+    navigator.geolocation.getCurrentPosition(
+      p=>{ setYou(p.coords.latitude,p.coords.longitude,"gps",p.coords.accuracy); run(YOU); },
+      ()=>run(YOU), {enableHighAccuracy:true, timeout:3500, maximumAge:20000});
   } else run(YOU);
 }
 
@@ -1634,7 +1699,11 @@ function openAbout(){
     ];
     initMap();
     map.fitBounds(BATHROOMS.map(b=>[b.lat,b.lng]),{padding:[60,60],maxZoom:15});
-    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(p=>{YOU=[p.coords.latitude,p.coords.longitude]});
+    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(
+      p=>setYou(p.coords.latitude,p.coords.longitude,"gps",p.coords.accuracy),
+      ()=>{}, {enableHighAccuracy:true, timeout:8000, maximumAge:60000});
+    startWatch();
+    if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
     const params = new URLSearchParams(location.search);
     const deepId = parseInt(params.get("throne"),10);
     const deepB = BATHROOMS.find(b=>b.id===deepId);
